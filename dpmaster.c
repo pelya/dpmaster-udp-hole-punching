@@ -43,7 +43,7 @@
 // ---------- Constants ---------- //
 
 // Version of dpmaster
-#define VERSION "1.2"
+#define VERSION "1.2.1"
 
 // Maximum number of servers in all lists by default
 #define DEFAULT_MAX_NB_SERVERS 128
@@ -519,7 +519,7 @@ static qboolean ParseCommandLine (int argc, char* argv [])
 			default:
 				valid_options = false;
 		}
-		
+
 		ind++;
 	}
 
@@ -534,7 +534,7 @@ static qboolean ParseCommandLine (int argc, char* argv [])
 #endif
 			max_msg_level = vlevel;
 	}
-	
+
 	return valid_options;
 }
 
@@ -623,7 +623,7 @@ static qboolean MasterInit (void)
 	}
 	memset (hash_table, 0, array_size);
 	MsgPrint (MSG_NORMAL, "> Hash table allocated (%u entries)\n", hash_table_size);
-	
+
 	// Get our own non-local address (i.e. not 127.x.x.x)
 	localaddr.s_addr = 0;
 	if (!gethostname (localname, sizeof (localname)))
@@ -689,7 +689,7 @@ static unsigned int AddressHash (const struct sockaddr_in* address)
 	qbyte* addr = (qbyte*)&address->sin_addr.s_addr;
 	qbyte* port = (qbyte*)&address->sin_port;
 	qbyte hash;
-	
+
 	hash = addr[0] ^ addr[1] ^ addr[2] ^ addr[3] ^ port[0] ^ port[1];
 	return hash & HASH_BITMASK;
 }
@@ -759,7 +759,7 @@ static server_t* GetServer (const struct sockaddr_in* address, qboolean add_it)
 		prev = &sv->next;
 		sv = sv->next;
 	}
-	
+
 	if (! add_it)
 		return NULL;
 
@@ -835,7 +835,7 @@ Send a "getinfo" message to a server
 static void SendGetInfo (server_t* server)
 {
 	qbyte msg [64] = "\xFF\xFF\xFF\xFFgetinfo ";
-	
+
 	if (!server->challenge_timeout || server->challenge_timeout < crt_time)
 	{
 		strcpy (server->challenge, BuildChallenge ());
@@ -905,7 +905,7 @@ static void HandleGetServers (const qbyte* msg, const struct sockaddr_in* addr)
 		server_t* sv = hash_table[ind];
 		server_t** prev = &hash_table[ind];
 
-		for (/* nothing */; sv != NULL; prev = &sv->next, sv = sv->next)
+		while (sv)
 		{
 			if (packetind >= sizeof (packet) - 12)
 				break;
@@ -919,16 +919,19 @@ static void HandleGetServers (const qbyte* msg, const struct sockaddr_in* addr)
 				continue;
 			}
 
-			if (sv->game != game)  // same game?
+			// Check game, protocol, options, and mod
+			if (sv->game != game ||
+				sv->protocol != protocol ||
+				(sv->nbclients == 0 && no_empty) ||
+				(sv->nbclients == sv->maxclients && no_full) ||
+				(gamename[0] && strcmp (gamename, sv->gamename)))
+			{
+				// Skip it
+				prev = &sv->next;
+				sv = sv->next;
+
 				continue;
-			if (sv->protocol != protocol)  // same protocol?
-				continue;
-			if (sv->nbclients == 0 && no_empty)  // send empty servers?
-				continue;
-			if (sv->nbclients == sv->maxclients && no_full)  // send full servers?
-				continue;
-			if (gamename[0] && strcmp (gamename, sv->gamename))  // same mod?
-				continue;
+			}
 
 			sv_addr = ntohl (sv->address.sin_addr.s_addr);
 			sv_port = ntohs (sv->address.sin_port);
@@ -952,6 +955,8 @@ static void HandleGetServers (const qbyte* msg, const struct sockaddr_in* addr)
 					  sv_port);
 
 			packetind += 7;
+			prev = &sv->next;
+			sv = sv->next;
 		}
 	}
 
@@ -1203,7 +1208,7 @@ int main (int argc, char* argv [])
 			MsgPrint (MSG_WARNING, "> WARNING: rejected packet (source port = 0)\n");
 			continue;
 		}
-		
+
 		// If we may have to print something, we rebuild the peer address buffer
 		if (max_msg_level != MSG_NOPRINT)
 			snprintf (peer_address, sizeof (peer_address), "%s:%hu",

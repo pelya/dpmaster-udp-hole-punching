@@ -52,6 +52,9 @@ memory, by design.
 
 * CHANGES:
 
+    - version 1.2.1:
+        A major bug was fixed (a NULL pointer dereference introduced in v1.2)
+
     - version 1.2:
         A major bug was fixed (an infinite loop in HandleGetServers)
 
