@@ -156,7 +156,7 @@ typedef struct server_s
 	time_t timeout;
 	time_t challenge_timeout;
 	qbyte gamename [GAMENAME_LENGTH];	// DP only
-    qboolean active;
+	qboolean active;
 } server_t;
 
 // The various messages levels
@@ -659,7 +659,7 @@ static qboolean MasterInit (void)
 	}
 
 	// Bind it to the master port
-    memset (&address, 0, sizeof (address));
+	memset (&address, 0, sizeof (address));
 	address.sin_family = AF_INET;
 	address.sin_addr.s_addr = htonl (INADDR_ANY);
 	address.sin_port = htons (master_port);
@@ -1052,10 +1052,10 @@ static void HandleMessage (const qbyte* msg, size_t length,
 	// If it's an heartbeat
 	if (!strncmp (S2M_HEARTBEAT, msg, strlen (S2M_HEARTBEAT)))
 	{
-        char gameId [64];
+		char gameId [64];
 
-        // Extract the game id
-        sscanf (msg + strlen (S2M_HEARTBEAT) + 1, "%63s", gameId);
+		// Extract the game id
+		sscanf (msg + strlen (S2M_HEARTBEAT) + 1, "%63s", gameId);
 		MsgPrint (MSG_DEBUG, "> %s ---> heartbeat (%s)\n", peer_address, gameId);
 
 		// Get the server in the list (add it to the list if necessary)
