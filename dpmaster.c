@@ -129,7 +129,7 @@ Example of packet for "infoReponse" (Q3):
 // DP: "getservers Nexuiz 3 empty full"
 // DP: "getservers Transfusion 3 empty full"
 // QFusion: "getservers qfusion 39 empty full"
-#define C2M_GETSERVERS "getservers"
+#define C2M_GETSERVERS "getservers "
 
 // "getserversResponse" messages contain a list of servers requested
 // by a client. It's a list of IPv4 addresses and ports.
@@ -922,6 +922,23 @@ static void HandleGetServers (const qbyte* msg, const struct sockaddr_in* addr)
 				RemoveServerFromList (sv, prev);
 				sv = saved;
 				continue;
+			}
+
+			// LordHavoc: some extra debugging info, but skip it normally because it's not terribly cheap
+			if (MSG_DEBUG <= max_msg_level)
+			{
+				sv_addr = ntohl (sv->address.sin_addr.s_addr);
+				sv_port = ntohs (sv->address.sin_port);
+				MsgPrint (MSG_DEBUG, "comparing server: ip:\"%u.%u.%u.%u:%u\", p:%i, c:%i, g:\"%s\"\n", sv_addr >> 24, (sv_addr >> 16) & 0xFF, (sv_addr >>  8) & 0xFF, sv_addr & 0xFF, sv_port, sv->protocol, sv->nbclients, sv->gamename);
+				// Check protocol, options, and gamename
+				if (sv->protocol != protocol)
+					MsgPrint(MSG_DEBUG, "reject: protocol %i != requested %i\n", sv->protocol, protocol);
+				if (sv->nbclients == 0 && no_empty)
+					MsgPrint(MSG_DEBUG, "reject: nbclients is %i/%i && no_empty\n", sv->nbclients, sv->maxclients, no_empty);
+				if (sv->nbclients == sv->maxclients && no_full)
+					MsgPrint(MSG_DEBUG, "reject: nbclients is %i/%i && no_full\n", sv->nbclients, sv->maxclients, no_full);
+				if (gamename[0] && strcmp (gamename, sv->gamename))
+					MsgPrint(MSG_DEBUG, "reject: gamename \"%s\" != requested \"%s\"\n", sv->gamename, gamename);
 			}
 
 			// Check protocol, options, and gamename
