@@ -1215,7 +1215,7 @@ int main (int argc, char* argv [])
 					  nb_bytes);
 			continue;
 		}
-		if (*((int*)packet) != 0xFFFFFFFF)
+		if (*((unsigned int*)packet) != 0xFFFFFFFF)
 		{
 			MsgPrint (MSG_WARNING, "> WARNING: rejected packet (invalid header)\n");
 			continue;
