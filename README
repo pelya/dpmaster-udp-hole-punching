@@ -1,13 +1,14 @@
 
-Dpmaster, a master server for DarkPlaces and Quake III Arena
-------------------------------------------------------------
+Dpmaster, a master server for DarkPlaces, Quake III Arena and QFusion
+---------------------------------------------------------------------
 
 * INTRODUCTION:
 
 Dpmaster is a master server written from scratch for LordHavoc's great Quake 1
 engine: DarkPlaces. The master protocol used by DarkPlaces and dpmaster is
 heavily based on the Quake III Arena master server protocol, that's why
-dpmaster supports DP servers and Q3A servers at the same time.
+dpmaster supports DP servers and Q3A servers at the same time. QFusion uses the
+same master protocol too, and so it is also supported.
 
 Although dpmaster is being developed primarily on a Linux machine (i386), it
 should compile and run at least on any operating system from the Win32 or UNIX
@@ -53,7 +54,7 @@ memory, by design.
 * CHANGES:
 
     - version 1.3:
-        Added QFusion support
+        Ability to support any game which uses DP master protocol (ex: QFusion)
 
     - version 1.2.1:
         A major bug was fixed (a NULL pointer dereference introduced in v1.2)

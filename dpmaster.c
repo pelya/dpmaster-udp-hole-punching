@@ -1,7 +1,7 @@
 /*
 	dpmaster.c
 
-	A master server for DarkPlaces and Q3A, based on Q3A master protocol
+	A master server for DarkPlaces, Q3A and QFusion, based on Q3A master protocol
 
 	Copyright (C) 2002-2003  Mathieu Olivier
 
@@ -58,6 +58,9 @@
 
 // Max number of characters for a gamename, including the '\0'
 #define GAMENAME_LENGTH 64
+
+// Gamename used for Q3A
+#define GAMENAME_Q3A "Quake3Arena"
 
 // Default master port
 #define DEFAULT_MASTER_PORT 27950
@@ -877,7 +880,7 @@ static void HandleGetServers (const qbyte* msg, const struct sockaddr_in* addr)
 	MsgPrint (MSG_NORMAL, "> %s ---> getservers\n", peer_address);
 
 	// Check if there's a name before the protocol number
-	// In this case, the message comes from a DarkPlaces client
+	// In this case, the message comes from a DarkPlaces or QFusion client
 	protocol = atoi (msg);
 	if (!protocol)
 	{
@@ -892,8 +895,9 @@ static void HandleGetServers (const qbyte* msg, const struct sockaddr_in* addr)
 
 		protocol = atoi (msg);
 	}
-
-	// is the protocol any different for Q2 and QW?
+	// Else, it comes from a Quake III Arena client
+	else
+		strcpy (gamename, GAMENAME_Q3A);
 
 	no_empty = (strstr (msg, "empty") == NULL);
 	no_full = (strstr (msg, "full") == NULL);
@@ -1031,6 +1035,8 @@ static void HandleInfoResponse (server_t* server, const qbyte* msg)
 	value = SearchInfostring (msg, "gamename");
 	if (value)
 		strncpy (server->gamename, value, sizeof (server->gamename) - 1);
+	else
+		strcpy (server->gamename, GAMENAME_Q3A);  // Q3A doesn't send a gamename
 
 	// Set a new timeout
 	server->timeout = crt_time + TIMEOUT_INFORESPONSE;
