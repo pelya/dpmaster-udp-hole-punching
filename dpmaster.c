@@ -878,7 +878,6 @@ static void HandleGetServers (const qbyte* msg, const struct sockaddr_in* addr)
 	unsigned int ind;
 	unsigned int sv_addr;
 	unsigned int sv_port;
-	game_t game;
 	qboolean no_empty;
 	qboolean no_full;
 
@@ -899,10 +898,7 @@ static void HandleGetServers (const qbyte* msg, const struct sockaddr_in* addr)
 		msg += strlen (gamename) + 1;
 
 		protocol = atoi (msg);
-		game = GAME_DARKPLACES;
 	}
-	else
-		game = GAME_QUAKE3;
 
 	// is the protocol any different for Q2 and QW?
 
@@ -931,9 +927,8 @@ static void HandleGetServers (const qbyte* msg, const struct sockaddr_in* addr)
 				continue;
 			}
 
-			// Check game, protocol, options, and mod
-			if (sv->game != game ||
-				sv->protocol != protocol ||
+			// Check protocol, options, and gamename
+			if (sv->protocol != protocol ||
 				(sv->nbclients == 0 && no_empty) ||
 				(sv->nbclients == sv->maxclients && no_full) ||
 				(gamename[0] && strcmp (gamename, sv->gamename)))
