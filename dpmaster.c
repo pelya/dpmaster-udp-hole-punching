@@ -1,7 +1,7 @@
 /*
 	dpmaster.c
 
-	A master server for DarkPlaces based on Q3A master protocol
+	A master server for DarkPlaces and Q3A, based on Q3A master protocol
 
 	Copyright (C) 2002  Mathieu Olivier
 
@@ -21,7 +21,8 @@
 */
 
 
-#include <assert.h>
+#include <errno.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -41,13 +42,15 @@
 // ---------- Constants ---------- //
 
 // Version of dpmaster
-#define VERSION "1.01"
+#define VERSION "1.1 alpha"
 
 // Maximum number of servers in all lists by default
-#define DEFAULT_MAX_NB_SERVERS 256
+#define DEFAULT_MAX_NB_SERVERS 128
 
-// Size of an address hash, in bits
-#define HASH_SIZE 8
+// Address hash: size in bits (between 0 and 8), table size and bitmask
+#define HASH_SIZE 5
+#define HASH_TABLESIZE (1 << HASH_SIZE)
+#define HASH_BITMASK ((1 << HASH_SIZE) - 1)
 
 // Number of characters in a challenge, including the '\0'
 #define CHALLENGE_LENGTH 12
@@ -63,9 +66,11 @@
 #define MIN_PACKET_SIZE 5
 
 // Timeouts (in secondes)
-#define TIMEOUT_CHALLENGE    2
-#define TIMEOUT_HEARTBEAT    2
+#define TIMEOUT_HEARTBEAT    (4 * 60)
 #define TIMEOUT_INFORESPONSE (15 * 60)
+
+// Period of validity for a challenge string (in secondes)
+#define VALIDITY_CHALLENGE 2
 
 
 // Types of messages (with examples and descriptions):
@@ -84,9 +89,9 @@
 
 // An "infoResponse" message is the reponse to a "getinfo" request
 // Its infostring contains a number of important infos about the server.
-// "sv_maxclients", "protocol" and "clients" must be present. For DP, "gamename"
-// is mandatory too. If the "getinfo" request contained a challenge,
-// it must be included (info name: "challenge")
+// "sv_maxclients", "protocol" and "clients" must be present. For DP,
+// "gamename" is mandatory too. If the "getinfo" request contained
+// a challenge, it must be included (info name: "challenge")
 // Q3 & DP: "infoResponse\x0A\\pure\\1\\..."
 #define S2M_INFORESPONSE "infoResponse"
 
@@ -100,14 +105,14 @@ Example of packet for "infoReponse" (Q3):
 
 // "getservers" is sent by a client who wants to get a list of servers.
 // The message must contain a protocol version, and optionally "empty" and/or
-// "full" depending on whether or not the client also wants to get full servers
-// or empty servers. DP requires the client to precise the gamemode it runs,
+// "full" depending on whether or not the client also wants to get empty
+// or full servers. DP requires the client to precise the gamemode it runs,
 // right before the protocol number.
 // Q3: "getservers 67 empty full"
 // DP: "getservers Transfusion 3 empty full"
 #define C2M_GETSERVERS "getservers"
 
-// "getserversResponse" messages contains a list of servers requested
+// "getserversResponse" messages contain a list of servers requested
 // by a client. It's a list of IPv4 addresses and ports.
 // Q3 & DP: "getserversResponse\\...(6 bytes)...\\...(6 bytes)...\\EOT\0\0\0"
 #define M2C_GETSERVERSREPONSE "getserversResponse"
@@ -123,8 +128,9 @@ typedef unsigned char qbyte;
 typedef int socklen_t;
 #endif
 
-// Supported games
-typedef enum {GAME_QUAKE3, GAME_DARKPLACES} game_t;
+// Supported games and their names
+typedef enum {GAME_NONE, GAME_QUAKE3, GAME_DARKPLACES} game_t;
+const char* game_str [] = {"UNKNOWN", "Quake III Arena", "DarkPlaces"};
 
 // Server properties
 typedef struct server_s
@@ -136,10 +142,20 @@ typedef struct server_s
 	unsigned short nbclients;
 	unsigned short maxclients;
 	time_t timeout;
-	time_t challenge_timeout;  // each challenge remains valid during a short time
-	game_t game;
-	qbyte gamename [GAMENAME_LENGTH];  // DP only
+	time_t challenge_timeout;
+	game_t game;						// GAME_NONE means the slot is free
+	qbyte gamename [GAMENAME_LENGTH];	// DP only
 } server_t;
+
+// The various messages levels
+typedef enum
+{
+	MSG_NOPRINT,	// used by "max_msg_level" (= no printings)
+	MSG_ERROR,		// errors
+	MSG_WARNING,	// warnings
+	MSG_NORMAL,		// standard messages
+	MSG_DEBUG		// for debugging purpose
+} msg_level_t;
 
 
 // ---------- Global variables ---------- //
@@ -149,7 +165,7 @@ typedef struct server_s
 // hash of the address and port of the server gives the index of the list
 // used for a particular server.
 server_t* servers;
-server_t* server_lists [1 << HASH_SIZE];
+server_t* server_lists [HASH_TABLESIZE];
 size_t max_nb_servers = DEFAULT_MAX_NB_SERVERS;
 size_t nb_servers = 0;
 
@@ -157,11 +173,11 @@ size_t nb_servers = 0;
 // Used as a start index for finding a free slot in "servers" more quickly
 size_t last_alloc;
 
-// Print extra info about what is happening
-qboolean testmode = false;
+// Incremented each time we add a server, reset after the call to CheckTimeouts
+unsigned int sv_added_count = 0;
 
 // The master socket
-int sock;
+int sock = -1;
 
 // The current time (updated every time we receive a packet)
 time_t crt_time;
@@ -172,8 +188,44 @@ unsigned short master_port = DEFAULT_MASTER_PORT;
 // Our own address
 struct in_addr localaddr;
 
+// Maximum level for a message to be printed
+msg_level_t max_msg_level = MSG_NORMAL;
+
+// Peer address. We rebuild it every time we receive a new packet
+char peer_address [128];
+
 
 // ---------- Functions ---------- //
+
+// Win32 uses a different name for some standard functions
+#ifdef WIN32
+# define snprintf _snprintf
+#endif
+
+
+/*
+====================
+MsgPrint
+
+Print a message to screen, depending on its verbose level
+====================
+*/
+static int MsgPrint (msg_level_t msg_level, const char* format, ...)
+{
+	va_list args;
+	int result;
+
+	// If the message level is above the maximum level, don't print it
+	if (msg_level > max_msg_level)
+		return 0;
+
+	va_start (args, format);
+	result = vprintf (format, args);
+	va_end (args);
+
+	return result;
+}
+
 
 /*
 ====================
@@ -186,20 +238,25 @@ static void PrintPacket (const qbyte* packet, size_t length)
 {
 	size_t i;
 
-	putchar ('"');
+	// Exceptionally, we use MSG_NOPRINT here because if the function is
+	// called, the user probably wants this text to be displayed
+	// whatever the minimum message level is.
+	MsgPrint (MSG_NOPRINT, "\"");
 
 	for (i = 0; i < length; i++)
 	{
 		qbyte c = packet[i];
 		if (c == '\\')
-			printf ("\\\\");
+			MsgPrint (MSG_NOPRINT, "\\\\");
+		else if (c == '\"')
+			MsgPrint (MSG_NOPRINT, "\"");
 		else if (c >= 32 && c <= 127)
-			putchar (c);
+		 	MsgPrint (MSG_NOPRINT, "%c", c);
 		else
-			printf ("\\x%02X", c);
+			MsgPrint (MSG_NOPRINT, "\\x%02X", c);
 	}
 
-	printf ("\" (%u bytes)\n", length);
+	MsgPrint (MSG_NOPRINT, "\" (%u bytes)\n", length);
 }
 
 /*
@@ -285,7 +342,7 @@ static qboolean SysInit (void)
 
 	if (WSAStartup (MAKEWORD (1, 1), &winsockdata))
 	{
-		printf ("* ERROR: can't initialize winsocks\n");
+		MsgPrint (MSG_ERROR, "> ERROR: can't initialize winsocks\n");
 		return false;
 	}
 #endif
@@ -342,9 +399,10 @@ static qboolean ParseCommandLine (int argc, char* argv [])
 				break;
 			}
 
-			// Test mode
-			case 't':
-				testmode = true;
+			// Verbose level
+			case 'v':
+				ind++;
+				max_msg_level = ((ind < argc) ? atoi (argv[ind]) : MSG_DEBUG);
 				break;
 
 			default:
@@ -356,12 +414,15 @@ static qboolean ParseCommandLine (int argc, char* argv [])
 	
 	if (print_help)
 	{
-		printf ("Syntax: dpmaster [options]\n"
-				"Options can be:\n"
-				"	-n <max_servers> : maximum number of servers recorded (default: %u)\n"
-				"	-p <port_num>    : listen on port <port_num> (default: %hu)\n"
-				"	-t               : test mode (print more informations, for debugging)\n",
-				DEFAULT_MAX_NB_SERVERS, DEFAULT_MASTER_PORT);
+		MsgPrint (MSG_ERROR,
+				  "Syntax: dpmaster [options]\n"
+				  "Available options are:\n"
+				  "  -n <max_servers> : maximum number of servers recorded (default: %u)\n"
+				  "  -p <port_num>    : use port <port_num> (default: %hu)\n"
+				  "  -v [verbose_lvl] : verbose level, up to %u (default: %u)\n"
+				  "\n",
+				  DEFAULT_MAX_NB_SERVERS, DEFAULT_MASTER_PORT,
+				  MSG_DEBUG, MSG_NORMAL);
 
 		return false;
 	}
@@ -392,15 +453,16 @@ static qboolean MasterInit (void)
 	servers = malloc (array_size);
 	if (!servers)
 	{
-		perror ("Can't allocate the servers array");
+		MsgPrint (MSG_ERROR, "> ERROR: can't allocate the servers array (%s)\n",
+				  strerror (errno));
 		return false;
 	}
 	last_alloc = max_nb_servers - 1;
 	memset (servers, 0, array_size);
 	memset (server_lists, 0, sizeof (server_lists));
-	printf ("* %u server records allocated\n", max_nb_servers);
+	MsgPrint (MSG_NORMAL, "> %u server records allocated\n", max_nb_servers);
 	
-	// Get our own internet address (i.e. not 127.x.x.x)
+	// Get our own non-local address (i.e. not 127.x.x.x)
 	localaddr.s_addr = 0;
 	if (!gethostname (localname, sizeof (localname)))
 	{
@@ -408,21 +470,26 @@ static qboolean MasterInit (void)
 		if (host && host->h_addrtype == AF_INET && host->h_addr[0] != 127)
 		{
 			memcpy (&localaddr.s_addr, host->h_addr, sizeof (localaddr.s_addr));
-			printf ("* Local address resolved (%s => %u.%u.%u.%u)\n", localname,
-					host->h_addr[0] & 0xFF, host->h_addr[1] & 0xFF,
-					host->h_addr[2] & 0xFF, host->h_addr[3] & 0xFF);
+			MsgPrint (MSG_NORMAL,
+					  "> Local address resolved: %s => %u.%u.%u.%u\n",
+					  localname,
+					  host->h_addr[0] & 0xFF, host->h_addr[1] & 0xFF,
+					  host->h_addr[2] & 0xFF, host->h_addr[3] & 0xFF);
 		}
 		else
-			printf ("* WARNING: can't determine the local host IP address\n");
+			MsgPrint (MSG_WARNING,
+					  "> WARNING: can't get a non-local IP address for \"%s\"\n",
+					  localname);
 	}
 	else
-		printf ("* WARNING: can't determine the local host name\n");
+		MsgPrint (MSG_WARNING, "> WARNING: can't determine the local host name\n");
 
 	// Open the socket
 	sock = socket (PF_INET, SOCK_DGRAM, IPPROTO_UDP);
 	if (sock < 0)
 	{
-		perror ("Socket failed");
+		MsgPrint (MSG_ERROR, "> ERROR: socket creation failed (%s)\n",
+				  strerror (errno));
 		return false;
 	}
 
@@ -433,7 +500,8 @@ static qboolean MasterInit (void)
 	address.sin_port = htons (master_port);
 	if (bind (sock, (struct sockaddr*)&address, sizeof (address)) != 0)
 	{
-		perror ("Bind failed");
+		MsgPrint (MSG_ERROR, "> ERROR: socket binding failed (%s)\n",
+				  strerror (errno));
 #ifdef WIN32
 		closesocket (sock);
 #else
@@ -441,7 +509,7 @@ static qboolean MasterInit (void)
 #endif
 		return false;
 	}
-	printf ("* Listening on port %hu\n", ntohs (address.sin_port));
+	MsgPrint (MSG_NORMAL, "> Listening on UDP port %hu\n", ntohs (address.sin_port));
 
 	return true;
 }
@@ -458,7 +526,31 @@ static unsigned int AddressHash (const struct sockaddr_in* address)
 {
 	qbyte* addr = (qbyte*)&address->sin_addr.s_addr;
 	qbyte* port = (qbyte*)&address->sin_port;
-	return (addr[0] ^ addr[1] ^ addr[2] ^ addr[3] ^ port[0] ^ port[1]);
+	qbyte hash =  addr[0] ^ addr[1] ^ addr[2] ^ addr[3] ^ port[0] ^ port[1];
+	
+	return hash & HASH_BITMASK;
+}
+
+
+/*
+====================
+RemoveServerFromList
+
+Remove a server from its server hash list
+====================
+*/
+static void RemoveServerFromList (server_t* sv, server_t** prev)
+{
+	nb_servers--;
+	MsgPrint (MSG_NORMAL,
+			  "> Server %s:%hu has timed out; %u servers are currently registered\n",
+			  inet_ntoa (sv->address.sin_addr), ntohs (sv->address.sin_port),
+			  nb_servers);
+
+	// Mark this structure as "free"
+	sv->game = GAME_NONE;
+
+	*prev = sv->next;
 }
 
 
@@ -471,28 +563,37 @@ Search for a particular server in the list; add it if necessary
 */
 static server_t* GetServer (const struct sockaddr_in* address, qboolean add_it)
 {
-	unsigned int hash = AddressHash (address);
-	server_t *prev = NULL, *sv = server_lists[hash];
-	unsigned int i;
+	unsigned int i, hash = AddressHash (address);
+	server_t **prev, *sv;
+
+	prev = &server_lists[hash];
+	sv = server_lists[hash];
 
 	while (sv)
 	{
+		// We check the timeout values while browsing this list
+		if (sv->timeout < crt_time)
+		{
+			server_t* saved = sv->next;
+			RemoveServerFromList (sv, prev);
+			sv = saved;
+			continue;
+		}
+
+		// Found!
 		if (sv->address.sin_addr.s_addr == address->sin_addr.s_addr &&
 			sv->address.sin_port == address->sin_port)
 		{
-			// Put it on top of the list
-			// (useful because heartbeats are always followed by infoResponses)
-			if (prev)
-			{
-				prev->next = sv->next;
-				sv->next = server_lists[hash];
-				server_lists[hash] = sv;
-			}
+			// Put it on top of the list (it's useful because heartbeats
+			// are almost always followed by infoResponses)
+			*prev = sv->next;
+			sv->next = server_lists[hash];
+			server_lists[hash] = sv;
 
 			return sv;
 		}
 
-		prev = sv;
+		prev = &sv->next;
 		sv = sv->next;
 	}
 	
@@ -505,22 +606,24 @@ static server_t* GetServer (const struct sockaddr_in* address, qboolean add_it)
 
 	// Look for the first free entry in "servers"
 	for (i = (last_alloc + 1) % max_nb_servers; i != last_alloc; i = (i + 1) % max_nb_servers)
-		if (! servers[i].address.sin_port)
+		if (servers[i].game == GAME_NONE)
 			break;
 	sv = &servers[i];
 	last_alloc = i;
+	sv_added_count++;
 
 	// Initialize the structure
 	memset (sv, 0, sizeof (*sv));
 	memcpy (&sv->address, address, sizeof (*address));
-	sv->timeout = crt_time + 3;
 
-	// Add it to the list it belongs
+	// Add it to the list it belongs to
 	sv->next = server_lists[hash];
 	server_lists[hash] = sv;
 	nb_servers++;
 
-	printf ("  - Added to the server list (index: %u, hash: 0x%02X)\n", i, hash);
+	MsgPrint (MSG_NORMAL,
+			  "> New server added: %s; %u servers are currently registered\n",
+			  peer_address, nb_servers);
 
 	return sv;
 }
@@ -569,7 +672,7 @@ static void SendGetInfo (server_t* server)
 	if (!server->challenge_timeout || server->challenge_timeout < crt_time)
 	{
 		strcpy (server->challenge, BuildChallenge ());
-		server->challenge_timeout = crt_time + TIMEOUT_CHALLENGE;
+		server->challenge_timeout = crt_time + VALIDITY_CHALLENGE;
 	}
 
 	strcat (msg, server->challenge);
@@ -577,9 +680,8 @@ static void SendGetInfo (server_t* server)
 			(const struct sockaddr*)&server->address,
 			sizeof (server->address));
 
-	printf ("* %s:%hu <--- getinfo with challenge \"%s\"\n",
-			inet_ntoa (server->address.sin_addr),
-			ntohs (server->address.sin_port), server->challenge);
+	MsgPrint (MSG_DEBUG, "> %s <--- getinfo with challenge \"%s\"\n",
+			  peer_address, server->challenge);
 }
 
 
@@ -596,15 +698,14 @@ static void HandleGetServers (const qbyte* msg, const struct sockaddr_in* addr)
 	qbyte packet [2048] = "\xFF\xFF\xFF\xFFgetserversResponse\\";
 	size_t packetind = 23;  // = strlen (packet)
 	unsigned int protocol;
-	qboolean no_empty;
-	qboolean no_full;
 	unsigned int ind;
 	unsigned int sv_addr;
 	unsigned int sv_port;
 	game_t game;
+	qboolean no_empty;
+	qboolean no_full;
 
-	printf ("* %s:%hu ---> getservers\n",
-			inet_ntoa (addr->sin_addr), ntohs (addr->sin_port));
+	MsgPrint (MSG_NORMAL, "> %s ---> getservers\n", peer_address);
 
 	// Check if there's a name before the protocol number
 	// In this case, the message comes from a DarkPlaces client
@@ -629,18 +730,27 @@ static void HandleGetServers (const qbyte* msg, const struct sockaddr_in* addr)
 	no_empty = (strstr (msg, "empty") == NULL);
 	no_full = (strstr (msg, "full") == NULL);
 
-	printf ("* %s:%hu <--- getserversResponse\n",
-			inet_ntoa (addr->sin_addr), ntohs (addr->sin_port));
+	MsgPrint (MSG_DEBUG, "> %s <--- getserversResponse\n", peer_address);
 
 	// Add every relevant server
 	for (ind = 0; ind < sizeof (server_lists) / sizeof (server_lists[0]); ind++)
 	{
-		server_t* sv;
+		server_t* sv = server_lists[ind];
+		server_t** prev = &server_lists[ind];
 
-		for (sv = server_lists[ind]; sv != NULL; sv = sv->next)
+		while (sv)
 		{
 			if (packetind >= sizeof (packet) - 12)
 				break;
+
+			// We check the timeout values while browsing the server list
+			if (sv->timeout < crt_time)
+			{
+				server_t* saved = sv->next;
+				RemoveServerFromList (sv, prev);
+				sv = saved;
+				continue;
+			}
 
 			if (sv->game != game)  // same game?
 				continue;
@@ -651,11 +761,6 @@ static void HandleGetServers (const qbyte* msg, const struct sockaddr_in* addr)
 			if (sv->nbclients == sv->maxclients && no_full)  // send full servers?
 				continue;
 			if (gamename[0] && strcmp (gamename, sv->gamename))  // same mod?
-				continue;
-
-			// The removal of old servers is done after the parsing,
-			// so we also need to check the timeout value here
-			if (sv->timeout < crt_time)
 				continue;
 
 			sv_addr = ntohl (sv->address.sin_addr.s_addr);
@@ -674,13 +779,14 @@ static void HandleGetServers (const qbyte* msg, const struct sockaddr_in* addr)
 			// Trailing '\'
 			packet[packetind + 6] = '\\';
 
-			if (testmode)
-				printf ("  - Sending server %u.%u.%u.%u:%u\n",
-						packet[packetind    ], packet[packetind + 1],
-						packet[packetind + 2], packet[packetind + 3],
-						sv_port);
+			MsgPrint (MSG_DEBUG, "  - Sending server %u.%u.%u.%u:%u\n",
+					  packet[packetind    ], packet[packetind + 1],
+					  packet[packetind + 2], packet[packetind + 3],
+					  sv_port);
 
 			packetind += 7;
+			prev = &sv->next;
+			sv = sv->next;
 		}
 	}
 
@@ -694,8 +800,8 @@ static void HandleGetServers (const qbyte* msg, const struct sockaddr_in* addr)
 	packetind += 6;
 
 	// Print a few more informations
-	printf ("  - %u server addresses packed in %u bytes\n",
-			(packetind - 22) / 7 - 1, packetind);
+	MsgPrint (MSG_DEBUG, "  - %u server addresses packed in %u bytes\n",
+			  (packetind - 22) / 7 - 1, packetind);
 
 	// Send the packet to the client
 	sendto (sock, packet, packetind, 0, (const struct sockaddr*)addr,
@@ -714,19 +820,17 @@ static void HandleInfoResponse (server_t* server, const qbyte* msg)
 {
 	char* value;
 
-	printf ("* %s:%hu ---> infoResponse\n",
-			inet_ntoa (server->address.sin_addr),
-			ntohs (server->address.sin_port));
+	MsgPrint (MSG_DEBUG, "> %s ---> infoResponse\n", peer_address);
 
 	// Check the challenge
 	value = SearchInfostring (msg + 13, "challenge");
 	if (!value || strcmp (value, server->challenge))
 	{
-		printf ("  - ERROR: invalid challenge (%s)\n", value);
+		MsgPrint (MSG_ERROR, "> ERROR: invalid challenge from %s (%s)\n",
+				  peer_address, value);
 		// FIXME: remove it from the list?
 		return;
 	}
-		printf ("  - Valid challenge\n");
 
 	// Save some useful values
 	value = SearchInfostring (msg + 13, "protocol");
@@ -743,8 +847,9 @@ static void HandleInfoResponse (server_t* server, const qbyte* msg)
 		strncpy (server->gamename, value, sizeof (server->gamename) - 1);
 	if (!server->protocol || !server->maxclients)
 	{
-		printf ("  - ERROR: invalid data (protocol: %d, maxclients: %d)\n",
-				server->protocol, server->maxclients);
+		MsgPrint (MSG_ERROR,
+				  "> ERROR: invalid data from %s (protocol: %d, maxclients: %d)\n",
+				  peer_address, server->protocol, server->maxclients);
 		// FIXME: remove it from the list?
 		return;
 	}
@@ -771,25 +876,16 @@ static void HandleMessage (const qbyte* msg, size_t length,
 	{
 		game_t game;
 
-		printf ("* %s:%hu ---> heartbeat\n",
-				inet_ntoa (address->sin_addr), ntohs (address->sin_port));
-
-		printf ("  - Game: ");
 		if (!strcmp (msg + 9, " DarkPlaces\x0A"))
-		{
 			game = GAME_DARKPLACES;
-			printf ("DarkPlaces\n");
-		}
 		else if (!strcmp (msg + 9, " QuakeArena-1\x0A"))
-		{
 			game = GAME_QUAKE3;
-			printf ("Quake3Arena\n");
-		}
 		else
-		{
-			printf ("UNKNOWN\n");
+			game = GAME_NONE;
+
+		MsgPrint (MSG_DEBUG, "> %s ---> heartbeat (%s)\n", peer_address, game_str[game]);
+		if (game == GAME_NONE)
 			return;
-		}
 
 		// Get the server in the list (add it to the list if necessary)
 		server = GetServer (address, true);
@@ -832,32 +928,27 @@ Check if some servers have reached their timeout limit
 */
 void CheckTimeouts (void)
 {
-	unsigned int ind = 0;
-	server_t *prev, *sv;
+	unsigned int ind;
+	server_t* sv;
+	server_t** prev;
 
 	// Browse every server list
 	for (ind = 0; ind < sizeof (server_lists) / sizeof (server_lists[0]); ind++)
 	{
-		for (prev = NULL, sv = server_lists[ind]; sv != NULL; sv = sv->next)
+		sv = server_lists[ind];
+		prev = &server_lists[ind];
+
+		while (sv)
 		{
 			// If the current server has timed out, remove it
 			if (sv->timeout < crt_time)
 			{
-				if (prev)
-					prev->next = sv->next;
-				else
-					server_lists[ind] = sv->next;
-
-				nb_servers--;
-				printf ("* Server %s:%hu has timed out (%u servers remaining)\n",
-						inet_ntoa (sv->address.sin_addr),
-						ntohs (sv->address.sin_port), nb_servers);
-				
-				// Mark it as "free"
-				sv->address.sin_port = 0;
+				server_t* saved = sv->next;
+				RemoveServerFromList (sv, prev);
+				sv = saved;
 			}
 			else
-				prev = sv;
+				sv = sv->next;
 		}
 	}
 }
@@ -877,14 +968,16 @@ int main (int argc, char* argv [])
 	int nb_bytes;
 	qbyte packet [MAX_PACKET_SIZE + 1];  // "+ 1" because we append a '\0'
 
-	printf ("\n"
-			"dpmaster, a master server for DarkPlaces and Quake III Arena\n"
-			"(version " VERSION ", compiled the " __DATE__ " at " __TIME__ ")\n"
-			"\n");
+	MsgPrint (MSG_NORMAL,
+			  "\n"
+			  "dpmaster, a master server for DarkPlaces and Quake III Arena\n"
+			  "(version " VERSION ", compiled the " __DATE__ " at " __TIME__ ")\n"
+			  "\n");
 
 	// Initializations
 	if (!ParseCommandLine (argc, argv) || !SysInit () || !MasterInit ())
 		return EXIT_FAILURE;
+	MsgPrint (MSG_NORMAL, "\n");
 
 	// Until the end of times...
 	for (;;)
@@ -895,27 +988,46 @@ int main (int argc, char* argv [])
 							 (struct sockaddr*)&address, &addrlen);
 		if (nb_bytes <= MIN_PACKET_SIZE || *((int*)packet) != 0xFFFFFFFF)
 		{
-			printf ("* WARNING: \"recvfrom\" returned %d\n", nb_bytes);
+			MsgPrint (MSG_WARNING, "> WARNING: \"recvfrom\" returned %d\n", nb_bytes);
 			continue;
 		}
+
+		// A few sanity checks
+		if (! ntohs (address.sin_port))
+		{
+			MsgPrint (MSG_WARNING, "> WARNING: rejected packet (source port = 0)\n");
+			continue;
+		}
+		
+		// We rebuild the peer address buffer
+		snprintf (peer_address, sizeof (peer_address), "%s:%hu",
+				  inet_ntoa (address.sin_addr), ntohs (address.sin_port));
 
 		// We append a '\0' to make the parsing easier
 		packet[nb_bytes] = '\0';
 
 		// We update the current time and print the packet if necessary
 		crt_time = time (NULL);
-		if (testmode)
+		if (max_msg_level >= MSG_DEBUG)
+		{
+			MsgPrint (MSG_DEBUG, "> Packet dump: ");
 			PrintPacket (packet, nb_bytes);
+		}
 
 		// If the sender address is the loopback address, we try
 		// to translate it into a valid internet address
 		if ((ntohl (address.sin_addr.s_addr) >> 24) == 127 && localaddr.s_addr)
 			address.sin_addr.s_addr = localaddr.s_addr;
 
-		// Call HandleMessage with the remaining content
+		// Call HandleMessage with the remaining contents
 		HandleMessage (packet + 4, nb_bytes - 4, &address);
 
-		// Check if some servers have reached their timeout limit
-		CheckTimeouts ();
+		// Force a check of all timeouts values every time
+		// "sv_added_count" reaches 10% of our storage capability
+		if (sv_added_count >= max_nb_servers / 10)
+		{
+			CheckTimeouts ();
+			sv_added_count = 0;
+		}
 	}
 }
