@@ -89,11 +89,8 @@
 // new player, shutdown, ...) and at least each 5 minutes.
 // Q3: "heartbeat QuakeArena-1\x0A"
 // DP: "heartbeat DarkPlaces\x0A"
-// QFusion: "heartbeat\x0A\\mapname\\q3dm0\\matchtime\\20\\matchlock\\1\\competition\\0\\ctf\\0\\instantweap\\0\\gamedate\\Mar 29 2003\\gamename\\baseq3\\sv_maxclients\\8\\protocol\\39\\sv_cheats\\0\\timelimit\\0\\capturelimit\\0\\fraglimit\\0\\dmflags\\16\\deathmatch\\1\\version\\3.05 x86 Mar 30 2003 Win32 RELEASE\\sv_hostname\\Vic's Server\\fs_gamedir\\baseqf\\fs_game\\baseqf\x0A"
+// QFusion: "heartbeat QFusion\x0A"
 #define S2M_HEARTBEAT "heartbeat"
-#define S2M_HEARTBEAT_DARKPLACES "heartbeat DarkPlaces\x0A"
-#define S2M_HEARTBEAT_QUAKE3 "heartbeat QuakeArena-1\x0A"
-#define S2M_HEARTBEAT_QFUSION "heartbeat QFusion\x0A"
 
 // "getinfo" is sent by a master to a server when the former needs some infos
 // about it. Optionally, a challenge (a string) can be added to the message
@@ -128,7 +125,7 @@ Example of packet for "infoReponse" (Q3):
 // DP: "getservers DarkPlaces-Nehahra 3 empty full"
 // DP: "getservers Nexuiz 3 empty full"
 // DP: "getservers Transfusion 3 empty full"
-// QFusion: "getservers baseq3 39 empty full"
+// QFusion: "getservers qfusion 39 empty full"
 #define C2M_GETSERVERS "getservers"
 
 // "getserversResponse" messages contain a list of servers requested
@@ -147,10 +144,6 @@ typedef unsigned char qbyte;
 typedef int socklen_t;
 #endif
 
-// Supported games and their names
-typedef enum {GAME_NONE, GAME_QUAKE3, GAME_DARKPLACES, GAME_QFUSION} game_t;
-const char* game_str [] = {"UNKNOWN", "Quake III Arena", "DarkPlaces", "QFusion"};
-
 // Server properties
 typedef struct server_s
 {
@@ -162,8 +155,8 @@ typedef struct server_s
 	unsigned short maxclients;
 	time_t timeout;
 	time_t challenge_timeout;
-	game_t game;						// GAME_NONE means the slot is free
 	qbyte gamename [GAMENAME_LENGTH];	// DP only
+    qboolean active;
 } server_t;
 
 // The various messages levels
@@ -721,7 +714,7 @@ static void RemoveServerFromList (server_t* sv, server_t** prev)
 			  nb_servers);
 
 	// Mark this structure as "free"
-	sv->game = GAME_NONE;
+	sv->active = false;
 
 	*prev = sv->next;
 }
@@ -783,7 +776,7 @@ static server_t* GetServer (const struct sockaddr_in* address, qboolean add_it)
 
 	// Look for the first free entry in "servers"
 	for (i = (last_alloc + 1) % max_nb_servers; i != last_alloc; i = (i + 1) % max_nb_servers)
-		if (servers[i].game == GAME_NONE)
+		if (!servers[i].active)
 			break;
 	sv = &servers[i];
 	last_alloc = i;
@@ -1059,27 +1052,18 @@ static void HandleMessage (const qbyte* msg, size_t length,
 	// If it's an heartbeat
 	if (!strncmp (S2M_HEARTBEAT, msg, strlen (S2M_HEARTBEAT)))
 	{
-		game_t game;
+        char gameId [64];
 
-		if (!strncmp (msg, S2M_HEARTBEAT_DARKPLACES, strlen(S2M_HEARTBEAT_DARKPLACES)))
-			game = GAME_DARKPLACES;
-		else if (!strncmp (msg, S2M_HEARTBEAT_QUAKE3, strlen(S2M_HEARTBEAT_QUAKE3)))
-			game = GAME_QUAKE3;
-		else if (!strncmp (msg, S2M_HEARTBEAT_QFUSION, strlen(S2M_HEARTBEAT_QFUSION)))
-			game = GAME_QFUSION;
-		else
-			game = GAME_NONE;
-
-		MsgPrint (MSG_DEBUG, "> %s ---> heartbeat (%s)\n", peer_address, game_str[game]);
-		if (game == GAME_NONE)
-			return;
+        // Extract the game id
+        sscanf (msg + strlen (S2M_HEARTBEAT) + 1, "%63s", gameId);
+		MsgPrint (MSG_DEBUG, "> %s ---> heartbeat (%s)\n", peer_address, gameId);
 
 		// Get the server in the list (add it to the list if necessary)
 		server = GetServer (address, true);
 		if (server == NULL)
 			return;
 
-		server->game = game;
+		server->active = true;
 
 		// If we haven't yet received any infoResponse from this server,
 		// we let it some more time to contact us. After that, only
