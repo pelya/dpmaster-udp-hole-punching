@@ -124,6 +124,10 @@ loopback address.
 
 * CHANGES:
 
+    - version 1.5.1:
+        Compilation on FreeBSD was fixed
+        A couple of minor changes in "COMPILING DPMASTER" (in techinfo.txt)
+
     - version 1.5:
         Address mapping added (see ADDRESS MAPPING above)
         Servers on a loopback address are accepted again if they have a mapping
