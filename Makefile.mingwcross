@@ -1,0 +1,25 @@
+
+EXE=dpmaster.exe
+LDFLAGS=-lwsock32
+CMD_RM=rm -f
+
+##### Common variables and commands #####
+
+CFLAGS= -MD -Wall -Werror -O2
+
+all: $(EXE)
+
+.c.o:
+	gcc $(CFLAGS) -c $*.c
+
+$(EXE): dpmaster.o
+	gcc -o $@ $^ $(LDFLAGS)
+
+clean:
+	-$(CMD_RM) $(EXE)
+	-$(CMD_RM) *.o
+	-$(CMD_RM) *.d
+
+.PHONY: clean
+
+-include *.d
