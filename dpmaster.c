@@ -43,7 +43,7 @@
 // ---------- Constants ---------- //
 
 // Version of dpmaster
-#define VERSION "1.1"
+#define VERSION "1.2"
 
 // Maximum number of servers in all lists by default
 #define DEFAULT_MAX_NB_SERVERS 128
@@ -905,7 +905,7 @@ static void HandleGetServers (const qbyte* msg, const struct sockaddr_in* addr)
 		server_t* sv = hash_table[ind];
 		server_t** prev = &hash_table[ind];
 
-		while (sv)
+		for (/* nothing */; sv != NULL; prev = &sv->next, sv = sv->next)
 		{
 			if (packetind >= sizeof (packet) - 12)
 				break;
@@ -952,8 +952,6 @@ static void HandleGetServers (const qbyte* msg, const struct sockaddr_in* addr)
 					  sv_port);
 
 			packetind += 7;
-			prev = &sv->next;
-			sv = sv->next;
 		}
 	}
 

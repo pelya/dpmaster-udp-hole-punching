@@ -52,6 +52,9 @@ memory, by design.
 
 * CHANGES:
 
+    - version 1.2:
+        A major bug was fixed (an infinite loop in HandleGetServers)
+
     - version 1.1:
         A lot of optimizations and tweakings
         Verbose option added (-v)
@@ -74,4 +77,4 @@ dpmaster on the DarkPlaces home page: http://icculus.org/twilight/darkplaces/
 
 
 --
-Mathieu Olivier  <elric@planetblood.com>
+Mathieu Olivier  <molivier@users.sourceforge.net>
