@@ -380,22 +380,22 @@ static qboolean SysInit (void)
 	// NOTE: we must do that before being chrooted
 	if (listen_name != NULL)
 	{
-		struct hostent* interface;
+		struct hostent* itf;
 
-		interface = gethostbyname (listen_name);
-		if (interface == NULL)
+		itf = gethostbyname (listen_name);
+		if (itf == NULL)
 		{
 			MsgPrint (MSG_ERROR, "> ERROR: can't resolve %s\n", listen_name);
 			return false;
 		}
-		if (interface->h_addrtype != AF_INET)
+		if (itf->h_addrtype != AF_INET)
 		{
 			MsgPrint (MSG_ERROR, "> ERROR: %s is not an IPv4 address\n",
 					  listen_name);
 			return false;
 		}
 
-		memcpy (&listen_addr.s_addr, interface->h_addr,
+		memcpy (&listen_addr.s_addr, itf->h_addr,
 				sizeof (listen_addr.s_addr));
 	}
 
