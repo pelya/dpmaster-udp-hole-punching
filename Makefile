@@ -14,7 +14,7 @@ UNIX_RM=rm -f
 
 CC=gcc
 CFLAGS=-Wall -O2
-OBJECTS=dpmaster.o
+OBJECTS=dpmaster.o messages.o servers.o
 
 ##### Commands #####
 
@@ -35,7 +35,7 @@ $(EXE): $(OBJECTS)
 clean:
 	-$(UNIX_RM) $(WIN32_EXE)
 	-$(UNIX_RM) $(UNIX_EXE)
-	-$(UNIX_RM) *.o
+	-$(UNIX_RM) *.o *~
 
 win32clean:
 	-$(WIN32_RM) $(WIN32_EXE)

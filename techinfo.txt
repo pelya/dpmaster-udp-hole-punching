@@ -1,0 +1,38 @@
+
+Dpmaster, a master server for DarkPlaces, Quake III Arena and QFusion
+---------------------------------------------------------------------
+                         Technical information
+                         ---------------------
+
+
+* PROTOCOL:
+
+<TODO: document the protocol>
+
+Take a look at ftp://ftp.idsoftware.com/idstuff/quake3/docs/server.txt for Q3A
+documentation.
+
+
+* BEHAVIOUR:
+
+The way dpmaster behaves when talking to clients and servers is largely based
+on one important idea: authenticated "infoResponse" messages are the only
+messages we can reasonably trust.
+
+When dpmaster receives an "heartbeat" message from a server, it will reply with
+a "getinfo" and register this server for a couple of seconds. If it hasn't sent
+back an "infoResponse" containing a valid challenge string by this time,
+dpmaster forgets it. Further "heartbeat" messages can't prolongate this time,
+and during that period of time, the server IP address won't be transmitted to
+any client.
+
+When dpmaster receives a valid infoResponse from a server, it associates a
+timeout value to it (15 min at this time). Only another valid "infoResponse"
+from this very server will be able to refresh this timeout value. Its IP
+address will be transmitted to the appropriate clients, until it timeouts.
+Then, dpmaster forgets it.
+
+You may have noticed that this behaviour doesn't take into account the fact
+that some servers send 2 "heartbeat" messages when closing. I deliberately
+choose to keep the behaviour as simple and predictible as possible, hopefully
+making it free from any major abuse.

@@ -89,10 +89,30 @@ LINK32=link.exe
 
 SOURCE=.\dpmaster.c
 # End Source File
+# Begin Source File
+
+SOURCE=.\messages.c
+# End Source File
+# Begin Source File
+
+SOURCE=.\servers.c
+# End Source File
 # End Group
 # Begin Group "Header Files"
 
 # PROP Default_Filter "h;hpp;hxx;hm;inl"
+# Begin Source File
+
+SOURCE=.\common.h
+# End Source File
+# Begin Source File
+
+SOURCE=.\messages.h
+# End Source File
+# Begin Source File
+
+SOURCE=.\servers.h
+# End Source File
 # End Group
 # End Target
 # End Project
