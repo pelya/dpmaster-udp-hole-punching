@@ -43,7 +43,7 @@
 // ---------- Constants ---------- //
 
 // Version of dpmaster
-#define VERSION "1.3"
+#define VERSION "1.3.1"
 
 // Maximum number of servers in all lists by default
 #define DEFAULT_MAX_NB_SERVERS 128
@@ -249,7 +249,6 @@ static int MsgPrint (msg_level_t msg_level, const char* format, ...)
 	result = vprintf (format, args);
 	va_end (args);
 
-	// LordHavoc: added to make logging more useful
 	fflush(stdout);
 
 	return result;
@@ -317,7 +316,7 @@ static char* SearchInfostring (const char* infostring, const char* key)
 
 			if (c == '\0')
 				return NULL;
-			if (c == '\\')
+			if (c == '\\' || key_ind == sizeof (crt_key) - 1)
 			{
 				crt_key[key_ind] = '\0';
 				break;
@@ -333,7 +332,7 @@ static char* SearchInfostring (const char* infostring, const char* key)
 			{
 				c = *infostring++;
 
-				if (c == '\0' || c == '\\')
+				if (c == '\0' || c == '\\' || value_ind == sizeof (value) - 1)
 				{
 					value[value_ind] = '\0';
 					return value;
@@ -519,10 +518,16 @@ static qboolean ParseCommandLine (int argc, char* argv [])
 
 			// Verbose level
 			case 'v':
-				ind++;
-				vlevel = ((ind < argc) ? atoi (argv[ind]) : MSG_DEBUG);
-				if (vlevel > MSG_DEBUG)
-					valid_options = false;
+				// If a verbose level has been specified
+				if (ind + 1 < argc && argv[ind + 1][0] != '-')
+				{
+					ind++;
+					vlevel = atoi (argv[ind]);
+					if (vlevel > MSG_DEBUG)
+						valid_options = false;
+				}
+				else
+					vlevel = MSG_DEBUG;
 				break;
 
 			default:
@@ -575,7 +580,7 @@ static void PrintHelp (void)
 			  "  -u <user>        : use <user> privileges (default: %s)\n"
 			  "                     only available when running with super-user privileges\n"
 #endif
-			  "  -v [verbose_lvl] : verbose level, up to %u (default: %u)\n"
+			  "  -v [verbose_lvl] : verbose level, up to %u (default: %u; no value means max)\n"
 			  "\n",
 			  MAX_HASH_SIZE, DEFAULT_HASH_SIZE,
 #ifndef WIN32
@@ -848,11 +853,11 @@ static void SendGetInfo (server_t* server)
 
 	if (!server->challenge_timeout || server->challenge_timeout < crt_time)
 	{
-		strcpy (server->challenge, BuildChallenge ());
+		strncpy (server->challenge, BuildChallenge (), sizeof (server->challenge) - 1);
 		server->challenge_timeout = crt_time + VALIDITY_CHALLENGE;
 	}
 
-	strcat (msg, server->challenge);
+	strncat (msg, server->challenge, sizeof (msg) - strlen (msg) - 1);
 	sendto (sock, msg, strlen (msg), 0,
 			(const struct sockaddr*)&server->address,
 			sizeof (server->address));
@@ -901,7 +906,10 @@ static void HandleGetServers (const qbyte* msg, const struct sockaddr_in* addr)
 	}
 	// Else, it comes from a Quake III Arena client
 	else
-		strcpy (gamename, GAMENAME_Q3A);
+	{
+		strncpy (gamename, GAMENAME_Q3A, sizeof (gamename) - 1);
+		gamename[sizeof (gamename) - 1] = '\0';
+	}
 
 	no_empty = (strstr (msg, "empty") == NULL);
 	no_full = (strstr (msg, "full") == NULL);
@@ -928,12 +936,13 @@ static void HandleGetServers (const qbyte* msg, const struct sockaddr_in* addr)
 				continue;
 			}
 
-			// LordHavoc: some extra debugging info, but skip it normally because it's not terribly cheap
+			// Some extra debugging info, but skip it normally because it's not terribly cheap
 			if (MSG_DEBUG <= max_msg_level)
 			{
 				sv_addr = ntohl (sv->address.sin_addr.s_addr);
 				sv_port = ntohs (sv->address.sin_port);
 				MsgPrint (MSG_DEBUG, "comparing server: ip:\"%u.%u.%u.%u:%u\", p:%i, c:%i, g:\"%s\"\n", sv_addr >> 24, (sv_addr >> 16) & 0xFF, (sv_addr >>  8) & 0xFF, sv_addr & 0xFF, sv_port, sv->protocol, sv->nbclients, sv->gamename);
+
 				// Check protocol, options, and gamename
 				if (sv->protocol != protocol)
 					MsgPrint(MSG_DEBUG, "reject: protocol %i != requested %i\n", sv->protocol, protocol);
@@ -1054,10 +1063,11 @@ static void HandleInfoResponse (server_t* server, const qbyte* msg)
 	if (value)
 		server->nbclients = atoi (value);
 	value = SearchInfostring (msg, "gamename");
-	if (value)
-		strncpy (server->gamename, value, sizeof (server->gamename) - 1);
-	else
-		strcpy (server->gamename, GAMENAME_Q3A);  // Q3A doesn't send a gamename
+
+	// Q3A doesn't send a gamename, so we add it manually
+	if (value == NULL)
+		value = GAMENAME_Q3A;
+	strncpy (server->gamename, value, sizeof (server->gamename) - 1);
 
 	// Set a new timeout
 	server->timeout = crt_time + TIMEOUT_INFORESPONSE;

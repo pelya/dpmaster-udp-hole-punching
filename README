@@ -32,9 +32,9 @@ background.
 * SECURITY:
 
 First, you shouldn't be afraid to run dpmaster on your machine: at the time I
-wrote those lines, no security flaw has ever been found in any version of
-dpmaster. It has always been developed with security in mind and will always
-be.
+wrote those lines, only one security warning has been issued since the first
+release of dpmaster. It has always been developed with security in mind and will
+always be.
 
 Also, dpmaster needs very few things to run correctly. A little bit of memory,
 a few CPU cycles from time to time and a network port are its only
@@ -52,6 +52,11 @@ memory, by design.
 
 
 * CHANGES:
+
+    - version 1.3.1:
+        SECURITY WARNING: 2 exploitable buffer overflows were fixed
+        Verbose option parsing fixed
+        Paranoid buffer overflow checkings added, in case of future code changes
 
     - version 1.3:
         Ability to support any game which uses DP master protocol (ex: QFusion)
