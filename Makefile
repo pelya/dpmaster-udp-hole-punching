@@ -29,7 +29,9 @@ $(EXE): dpmaster.o
 	gcc -o $@ $^ $(LDFLAGS)
 
 clean:
-	-$(CMD_RM) $(EXE) *.o *.d
+	-$(CMD_RM) $(EXE)
+	-$(CMD_RM) *.o
+	-$(CMD_RM) *.d
 
 .PHONY: clean
 
