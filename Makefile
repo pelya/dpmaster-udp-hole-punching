@@ -2,33 +2,26 @@
 
 WIN32_EXE=dpmaster.exe
 WIN32_LDFLAGS=-lwsock32
+WIN32_RM=del
 
 ##### Unix variables #####
 
 UNIX_EXE=dpmaster
 UNIX_LDFLAGS=
+UNIX_RM=rm -f
 
 ##### Common variables #####
 
 CC=gcc
 CFLAGS=-Wall -O2
-
-ifdef windir
-CMD_RM=del
-else
-CMD_RM=rm -f
-endif
+OBJECTS=dpmaster.o
 
 ##### Commands #####
 
-.PHONY: all mingw clean
+.PHONY: all mingw clean win32clean
 
 all:
-ifdef windir
-	$(MAKE) EXE=$(WIN32_EXE) LDFLAGS="$(WIN32_LDFLAGS)" $(WIN32_EXE)
-else
 	$(MAKE) EXE=$(UNIX_EXE) LDFLAGS="$(UNIX_LDFLAGS)" $(UNIX_EXE) 
-endif
 
 mingw:
 	@$(MAKE) EXE=$(WIN32_EXE) LDFLAGS="$(WIN32_LDFLAGS)" $(WIN32_EXE)
@@ -36,10 +29,14 @@ mingw:
 .c.o:
 	$(CC) $(CFLAGS) -c $*.c
 
-$(EXE): dpmaster.o
-	$(CC) -o $@ $^ $(LDFLAGS)
+$(EXE): $(OBJECTS)
+	$(CC) -o $@ $(OBJECTS) $(LDFLAGS)
 
 clean:
-	-$(CMD_RM) $(WIN32_EXE)
-	-$(CMD_RM) $(UNIX_EXE)
-	-$(CMD_RM) *.o
+	-$(UNIX_RM) $(WIN32_EXE)
+	-$(UNIX_RM) $(UNIX_EXE)
+	-$(UNIX_RM) *.o
+
+win32clean:
+	-$(WIN32_RM) $(WIN32_EXE)
+	-$(WIN32_RM) *.o

@@ -32,7 +32,6 @@
 # include <winsock2.h>
 #else
 # include <arpa/inet.h>
-# include <netdb.h>
 # include <netinet/in.h>
 # include <pwd.h>
 # include <sys/socket.h>
@@ -43,7 +42,7 @@
 // ---------- Constants ---------- //
 
 // Version of dpmaster
-#define VERSION "1.3.1"
+#define VERSION "1.3.2cvs"
 
 // Maximum number of servers in all lists by default
 #define DEFAULT_MAX_NB_SERVERS 128
@@ -199,9 +198,6 @@ time_t crt_time;
 
 // The port we use
 unsigned short master_port = DEFAULT_MASTER_PORT;
-
-// Our own address
-struct in_addr localaddr;
 
 // Maximum level for a message to be printed
 msg_level_t max_msg_level = MSG_NORMAL;
@@ -605,7 +601,6 @@ System independent initializations
 static qboolean MasterInit (void)
 {
 	struct sockaddr_in address;
-	char localname [256];
 	size_t array_size;
 
 	// Init the time and the random seed
@@ -637,28 +632,6 @@ static qboolean MasterInit (void)
 	}
 	memset (hash_table, 0, array_size);
 	MsgPrint (MSG_NORMAL, "> Hash table allocated (%u entries)\n", hash_table_size);
-
-	// Get our own non-local address (i.e. not 127.x.x.x)
-	localaddr.s_addr = 0;
-	if (!gethostname (localname, sizeof (localname)))
-	{
-		struct hostent *host = gethostbyname (localname);
-		if (host && host->h_addrtype == AF_INET && host->h_addr[0] != 127)
-		{
-			memcpy (&localaddr.s_addr, host->h_addr, sizeof (localaddr.s_addr));
-			MsgPrint (MSG_NORMAL,
-					  "> Local address resolved: %s => %u.%u.%u.%u\n",
-					  localname,
-					  host->h_addr[0] & 0xFF, host->h_addr[1] & 0xFF,
-					  host->h_addr[2] & 0xFF, host->h_addr[3] & 0xFF);
-		}
-		else
-			MsgPrint (MSG_WARNING,
-					  "> WARNING: can't get a non-local IP address for \"%s\"\n",
-					  localname);
-	}
-	else
-		MsgPrint (MSG_WARNING, "> WARNING: can't determine the local host name\n");
 
 	// Open the socket
 	sock = socket (PF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -1238,22 +1211,20 @@ int main (int argc, char* argv [])
 			MsgPrint (MSG_WARNING, "> WARNING: rejected packet (source port = 0)\n");
 			continue;
 		}
+		if ((ntohl (address.sin_addr.s_addr) >> 24) == 127)
+		{
+			MsgPrint (MSG_WARNING, "> WARNING: rejected packet (loopback address)\n");
+			continue;
+		}
 
-		// If we may have to print something, we rebuild the peer address buffer
+		// If we may have to print something, rebuild the peer address buffer
 		if (max_msg_level != MSG_NOPRINT)
 			snprintf (peer_address, sizeof (peer_address), "%s:%hu",
 					  inet_ntoa (address.sin_addr), ntohs (address.sin_port));
 
-		// We append a '\0' to make the parsing easier
+		// Append a '\0' to make the parsing easier and update the current time
 		packet[nb_bytes] = '\0';
-
-		// We update the current time
 		crt_time = time (NULL);
-
-		// If the sender address is the loopback address, we try
-		// to translate it into a valid internet address
-		if ((ntohl (address.sin_addr.s_addr) >> 24) == 127 && localaddr.s_addr)
-			address.sin_addr.s_addr = localaddr.s_addr;
 
 		// Call HandleMessage with the remaining contents
 		HandleMessage (packet + 4, nb_bytes - 4, &address);
