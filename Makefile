@@ -11,7 +11,7 @@ UNIX_LDFLAGS=
 ##### Common variables #####
 
 CC=gcc
-CFLAGS= -Wall -O2
+CFLAGS=-Wall -O2
 
 ifdef windir
 CMD_RM=del

@@ -43,7 +43,7 @@
 // ---------- Constants ---------- //
 
 // Version of dpmaster
-#define VERSION "1.1 beta 1"
+#define VERSION "1.1 beta 2"
 
 // Maximum number of servers in all lists by default
 #define DEFAULT_MAX_NB_SERVERS 128
@@ -67,8 +67,7 @@
 #define MIN_PACKET_SIZE 5
 
 // Timeouts (in secondes)
-#define TIMEOUT_1ST_HEARTBEAT	2
-#define TIMEOUT_HEARTBEAT		(4 * 60)
+#define TIMEOUT_HEARTBEAT		2
 #define TIMEOUT_INFORESPONSE	(15 * 60)
 
 // Period of validity for a challenge string (in secondes)
@@ -369,7 +368,7 @@ static qboolean SysInit (void)
 
 #else
 	// Should we run as a daemon?
-	if (daemon_mode && daemon (0, 0) != 0)
+	if (daemon_mode && daemon (0, 0))
 		MsgPrint (MSG_NOPRINT, "> ERROR: daemonization failed (%s)\n",
 				  strerror (errno));
 
@@ -393,7 +392,7 @@ static qboolean SysInit (void)
 		// Switch to lower privileges
 		MsgPrint (MSG_NORMAL, "  - switching to user \"%s\" privileges... ",
 				  low_priv_user);
-		if (pw != NULL && !setgid (pw->pw_gid) && !setuid (pw->pw_uid))
+		if (pw && !setgid (pw->pw_gid) && !setuid (pw->pw_uid))
 			MsgPrint (MSG_NORMAL, "succeeded (UID: %u, GID: %u)\n",
 					  pw->pw_uid, pw->pw_gid);
 		else
@@ -992,6 +991,7 @@ Parse infoResponse messages
 static void HandleInfoResponse (server_t* server, const qbyte* msg)
 {
 	char* value;
+	unsigned int new_protocol = 0, new_maxclients = 0;
 
 	MsgPrint (MSG_DEBUG, "> %s ---> infoResponse\n", peer_address);
 
@@ -1001,31 +1001,33 @@ static void HandleInfoResponse (server_t* server, const qbyte* msg)
 	{
 		MsgPrint (MSG_ERROR, "> ERROR: invalid challenge from %s (%s)\n",
 				  peer_address, value);
-		// FIXME: remove it from the list?
 		return;
 	}
 
-	// Save some useful values
+	// Check and save the values of "protocol" and "maxclients"
 	value = SearchInfostring (msg + 13, "protocol");
 	if (value)
-		server->protocol = atoi (value);
+		new_protocol = atoi (value);
 	value = SearchInfostring (msg + 13, "sv_maxclients");
 	if (value)
-		server->maxclients = atoi (value);
+		new_maxclients = atoi (value);
+	if (!new_protocol || !new_maxclients)
+	{
+		MsgPrint (MSG_ERROR,
+				  "> ERROR: invalid data from %s (protocol: %d, maxclients: %d)\n",
+				  peer_address, new_protocol, new_maxclients);
+		return;
+	}
+	server->protocol = new_protocol;
+	server->maxclients = new_maxclients;
+
+	// Save some other useful values
 	value = SearchInfostring (msg + 13, "clients");
 	if (value)
 		server->nbclients = atoi (value);
 	value = SearchInfostring (msg + 13, "gamename");
 	if (value)
 		strncpy (server->gamename, value, sizeof (server->gamename) - 1);
-	if (!server->protocol || !server->maxclients)
-	{
-		MsgPrint (MSG_ERROR,
-				  "> ERROR: invalid data from %s (protocol: %d, maxclients: %d)\n",
-				  peer_address, server->protocol, server->maxclients);
-		// FIXME: remove it from the list?
-		return;
-	}
 
 	// Set a new timeout
 	server->timeout = crt_time + TIMEOUT_INFORESPONSE;
@@ -1067,10 +1069,10 @@ static void HandleMessage (const qbyte* msg, size_t length,
 
 		server->game = game;
 
-		// Set the new timeout value
-		if (!server->protocol)  // we haven't yet received a response from it
-			server->timeout = crt_time + TIMEOUT_1ST_HEARTBEAT;
-		else
+		// If we haven't yet received any infoResponse from this server,
+		// we let it some more time to contact us. After that, only
+		// infoResponse messages can update the timeout value.
+		if (!server->maxclients)
 			server->timeout = crt_time + TIMEOUT_HEARTBEAT;
 
 		// Ask for some infos
