@@ -821,7 +821,8 @@ static const char* BuildChallenge (void)
 		do
 		{
 			c = rand () % (127 - 33) + 33;
-		} while (c == '\\' || c == ';' || c == '"' || c == '%');
+		} while (c == '\\' || c == ';' || c == '"' || c == '%' ||
+				c == '/');
 
 		challenge[ind] = c;
 	}
