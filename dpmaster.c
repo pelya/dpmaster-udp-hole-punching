@@ -91,9 +91,13 @@
 // DP: "heartbeat DarkPlaces\x0A"
 // QFusion: "heartbeat\x0A\\mapname\\q3dm0\\matchtime\\20\\matchlock\\1\\competition\\0\\ctf\\0\\instantweap\\0\\gamedate\\Mar 29 2003\\gamename\\baseq3\\sv_maxclients\\8\\protocol\\39\\sv_cheats\\0\\timelimit\\0\\capturelimit\\0\\fraglimit\\0\\dmflags\\16\\deathmatch\\1\\version\\3.05 x86 Mar 30 2003 Win32 RELEASE\\sv_hostname\\Vic's Server\\fs_gamedir\\baseqf\\fs_game\\baseqf\x0A"
 #define S2M_HEARTBEAT "heartbeat"
+#define S2M_HEARTBEAT_DARKPLACES "heartbeat DarkPlaces\x0A"
+#define S2M_HEARTBEAT_QUAKE3 "heartbeat QuakeArena-1\x0A"
+#define S2M_HEARTBEAT_QUAKE2 "heartbeat\x0A"
 
 // ping is sent by a Q2/QFusion server for unknown reasons, reply with "ack"
 #define S2M_PING "ping"
+#define M2S_PING_ACK q2ack
 
 // "getinfo" is sent by a master to a server when the former needs some infos
 // about it. Optionally, a challenge (a string) can be added to the message
@@ -106,7 +110,7 @@
 // "gamename" is mandatory too. If the "getinfo" request contained
 // a challenge, it must be included (info name: "challenge")
 // Q3 & DP: "infoResponse\x0A\\pure\\1\\..."
-#define S2M_INFORESPONSE "infoResponse"
+#define S2M_INFORESPONSE "infoResponse\x0A"
 
 /*
 Example of packet for "infoReponse" (Q3):
@@ -1005,7 +1009,7 @@ static void HandleInfoResponse (server_t* server, const qbyte* msg)
 	MsgPrint (MSG_DEBUG, "> %s ---> infoResponse\n", peer_address);
 
 	// Check the challenge
-	value = SearchInfostring (msg + 13, "challenge");
+	value = SearchInfostring (msg, "challenge");
 	if (!value || strcmp (value, server->challenge))
 	{
 		MsgPrint (MSG_ERROR, "> ERROR: invalid challenge from %s (%s)\n",
@@ -1014,10 +1018,10 @@ static void HandleInfoResponse (server_t* server, const qbyte* msg)
 	}
 
 	// Check and save the values of "protocol" and "maxclients"
-	value = SearchInfostring (msg + 13, "protocol");
+	value = SearchInfostring (msg, "protocol");
 	if (value)
 		new_protocol = atoi (value);
-	value = SearchInfostring (msg + 13, "sv_maxclients");
+	value = SearchInfostring (msg, "sv_maxclients");
 	if (value)
 		new_maxclients = atoi (value);
 	if (!new_protocol || !new_maxclients)
@@ -1031,10 +1035,10 @@ static void HandleInfoResponse (server_t* server, const qbyte* msg)
 	server->maxclients = new_maxclients;
 
 	// Save some other useful values
-	value = SearchInfostring (msg + 13, "clients");
+	value = SearchInfostring (msg, "clients");
 	if (value)
 		server->nbclients = atoi (value);
-	value = SearchInfostring (msg + 13, "gamename");
+	value = SearchInfostring (msg, "gamename");
 	if (value)
 		strncpy (server->gamename, value, sizeof (server->gamename) - 1);
 
@@ -1058,10 +1062,10 @@ static void HandleQ2Heartbeat (server_t* server, const qbyte* msg)
 	MsgPrint (MSG_DEBUG, "> %s ---> heartbeat\n", peer_address);
 
 	// Check and save the values of "protocol" and "maxclients"
-	value = SearchInfostring (msg + 9, "protocol");
+	value = SearchInfostring (msg, "protocol");
 	if (value)
 		new_protocol = atoi (value);
-	value = SearchInfostring (msg + 9, "sv_maxclients");
+	value = SearchInfostring (msg, "sv_maxclients");
 	if (value)
 		new_maxclients = atoi (value);
 	if (!new_protocol || !new_maxclients)
@@ -1076,10 +1080,10 @@ static void HandleQ2Heartbeat (server_t* server, const qbyte* msg)
 
 	// Save some other useful values
 	// LordHavoc: I did not find this in sample heartbeats but left it in
-	value = SearchInfostring (msg + 9, "clients");
+	value = SearchInfostring (msg, "clients");
 	if (value)
 		server->nbclients = atoi (value);
-	value = SearchInfostring (msg + 9, "gamename");
+	value = SearchInfostring (msg, "gamename");
 	if (value)
 		strncpy (server->gamename, value, sizeof (server->gamename) - 1);
 
@@ -1095,6 +1099,7 @@ HandleMessage
 Parse a packet to figure out what to do with it
 ====================
 */
+qbyte q2ack[8] = {255, 255, 255, 255, 'a', 'c', 'k', 0};
 static void HandleMessage (const qbyte* msg, size_t length,
 						   const struct sockaddr_in* address)
 {
@@ -1105,11 +1110,11 @@ static void HandleMessage (const qbyte* msg, size_t length,
 	{
 		game_t game;
 
-		if (!strcmp (msg + 9, " DarkPlaces\x0A"))
+		if (!strncmp (msg, S2M_HEARTBEAT_DARKPLACES, strlen(S2M_HEARTBEAT_DARKPLACES)))
 			game = GAME_DARKPLACES;
-		else if (!strcmp (msg + 9, " QuakeArena-1\x0A"))
+		else if (!strncmp (msg, S2M_HEARTBEAT_QUAKE3, strlen(S2M_HEARTBEAT_QUAKE3)))
 			game = GAME_QUAKE3;
-		else if (!strcmp (msg + 9, "\x0A\\"))
+		else if (!strncmp (msg, S2M_HEARTBEAT_QUAKE2, strlen(S2M_HEARTBEAT_QUAKE2)))
 			game = GAME_QUAKE2;
 		else
 			game = GAME_NONE;
@@ -1125,19 +1130,19 @@ static void HandleMessage (const qbyte* msg, size_t length,
 
 		server->game = game;
 
-		// If we haven't yet received any infoResponse from this server,
-		// we let it some more time to contact us. After that, only
-		// infoResponse messages can update the timeout value.
-		if (!server->maxclients)
-			server->timeout = crt_time + TIMEOUT_HEARTBEAT;
-
 		if (game == GAME_QUAKE2)
 		{
 			// Quake2 puts the info in the heartbeat
-			HandleQ2Heartbeat (server, msg);
+			HandleQ2Heartbeat (server, msg + strlen(S2M_HEARTBEAT_QUAKE2));
 		}
 		else
 		{
+			// If we haven't yet received any infoResponse from this server,
+			// we let it some more time to contact us. After that, only
+			// infoResponse messages can update the timeout value.
+			if (!server->maxclients)
+				server->timeout = crt_time + TIMEOUT_HEARTBEAT;
+
 			// Ask for some infos
 			SendGetInfo (server);
 		}
@@ -1150,13 +1155,13 @@ static void HandleMessage (const qbyte* msg, size_t length,
 		if (server == NULL)
 			return;
 
-		HandleInfoResponse (server, msg);
+		HandleInfoResponse (server, msg + strlen (S2M_INFORESPONSE));
 	}
 
 	// If it's a getservers request
 	else if (!strncmp (C2M_GETSERVERS, msg, strlen (C2M_GETSERVERS)))
 	{
-		HandleGetServers (msg + 11, address);
+		HandleGetServers (msg + strlen (C2M_GETSERVERS), address);
 	}
 
 	// If it's a ping request (Q2/QFusion)
@@ -1164,7 +1169,7 @@ static void HandleMessage (const qbyte* msg, size_t length,
 	{
 		MsgPrint (MSG_NORMAL, "> %s ---> ping\n", peer_address);
 		MsgPrint (MSG_DEBUG, "> %s <--- ack\n", peer_address);
-		sendto (sock, "\0xFF\0xFF\0xFF\0xFFack", 7, 0, (const struct sockaddr*)address, sizeof (*address));
+		sendto (sock, M2S_PING_ACK, strlen(M2S_PING_ACK), 0, (const struct sockaddr*)address, sizeof (*address));
 	}
 }
 
