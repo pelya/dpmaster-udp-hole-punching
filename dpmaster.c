@@ -32,6 +32,7 @@
 # include <winsock2.h>
 #else
 # include <arpa/inet.h>
+# include <netdb.h>
 # include <netinet/in.h>
 # include <pwd.h>
 # include <sys/socket.h>
@@ -42,7 +43,7 @@
 // ---------- Constants ---------- //
 
 // Version of dpmaster
-#define VERSION "1.3.2cvs"
+#define VERSION "1.4"
 
 // Maximum number of servers in all lists by default
 #define DEFAULT_MAX_NB_SERVERS 128
@@ -198,6 +199,10 @@ time_t crt_time;
 
 // The port we use
 unsigned short master_port = DEFAULT_MASTER_PORT;
+
+// Local address we listen on, if any
+const char* listen_name = NULL;
+struct in_addr listen_addr;
 
 // Maximum level for a message to be printed
 msg_level_t max_msg_level = MSG_NORMAL;
@@ -369,12 +374,39 @@ static qboolean SysInit (void)
 		MsgPrint (MSG_ERROR, "> ERROR: can't initialize winsocks\n");
 		return false;
 	}
+#endif
 
-#else
+	// Resolve the listen address if one was specified
+	// NOTE: we must do that before being chrooted
+	if (listen_name != NULL)
+	{
+		struct hostent* interface;
+
+		interface = gethostbyname (listen_name);
+		if (interface == NULL)
+		{
+			MsgPrint (MSG_ERROR, "> ERROR: can't resolve %s\n", listen_name);
+			return false;
+		}
+		if (interface->h_addrtype != AF_INET)
+		{
+			MsgPrint (MSG_ERROR, "> ERROR: %s is not an IPv4 address\n",
+					  listen_name);
+			return false;
+		}
+
+		memcpy (&listen_addr.s_addr, interface->h_addr,
+				sizeof (listen_addr.s_addr));
+	}
+
+#ifndef WIN32
 	// Should we run as a daemon?
 	if (daemon_mode && daemon (0, 0))
+	{
 		MsgPrint (MSG_NOPRINT, "> ERROR: daemonization failed (%s)\n",
 				  strerror (errno));
+		return false;
+	}
 
 	// UNIX allows us to be completely paranoid, so let's go for it
 	if (geteuid () == 0)
@@ -385,22 +417,32 @@ static qboolean SysInit (void)
 
 		// We must get the account infos before the calls to chroot and chdir
 		pw = getpwnam (low_priv_user);
+		if (pw == NULL)
+		{
+			MsgPrint (MSG_ERROR, "> ERROR: can't get user \"%s\" properties\n",
+					  low_priv_user);
+			return false;
+		}
 
 		// Chroot ourself
 		MsgPrint (MSG_NORMAL, "  - chrooting myself to %s... ", jail_path);
-		if (!chroot (jail_path) && !chdir ("/"))
-			MsgPrint (MSG_NORMAL, "succeeded\n");
-		else
-			MsgPrint (MSG_NORMAL, "FAILED (%s)\n", strerror (errno));
+		if (chroot (jail_path) || chdir ("/"))
+		{
+			MsgPrint (MSG_ERROR, "FAILED (%s)\n", strerror (errno));
+			return false;
+		}
+		MsgPrint (MSG_NORMAL, "succeeded\n");
 
 		// Switch to lower privileges
 		MsgPrint (MSG_NORMAL, "  - switching to user \"%s\" privileges... ",
 				  low_priv_user);
-		if (pw && !setgid (pw->pw_gid) && !setuid (pw->pw_uid))
-			MsgPrint (MSG_NORMAL, "succeeded (UID: %u, GID: %u)\n",
-					  pw->pw_uid, pw->pw_gid);
-		else
-			MsgPrint (MSG_NORMAL, "FAILED (%s)\n", strerror (errno));
+		if (setgid (pw->pw_gid) || setuid (pw->pw_uid))
+		{
+			MsgPrint (MSG_ERROR, "FAILED (%s)\n", strerror (errno));
+			return false;
+		}
+		MsgPrint (MSG_NORMAL, "succeeded (UID: %u, GID: %u)\n",
+				  pw->pw_uid, pw->pw_gid);
 
 		MsgPrint (MSG_NORMAL, "\n");
 	}
@@ -472,6 +514,15 @@ static qboolean ParseCommandLine (int argc, char* argv [])
 					valid_options = false;
 				break;
 #endif
+
+			// Listen address
+			case 'l':
+				ind++;
+				if (ind >= argc || argv[ind][0] == '\0')
+					valid_options = false;
+				else
+					listen_name = argv[ind];
+				break;
 
 			// Maximum number of servers
 			case 'n':
@@ -570,6 +621,7 @@ static void PrintHelp (void)
 			  "  -j <jail_path>   : use <jail_path> as chroot path (default: %s)\n"
 			  "                     only available when running with super-user privileges\n"
 #endif
+			  "  -l <address>     : listen on local address <address>\n"
 			  "  -n <max_servers> : maximum number of servers recorded (default: %u)\n"
 			  "  -p <port_num>    : use port <port_num> (default: %u)\n"
 #ifndef WIN32
@@ -645,7 +697,14 @@ static qboolean MasterInit (void)
 	// Bind it to the master port
 	memset (&address, 0, sizeof (address));
 	address.sin_family = AF_INET;
-	address.sin_addr.s_addr = htonl (INADDR_ANY);
+	if (listen_name != NULL)
+	{
+		MsgPrint (MSG_NORMAL, "> Listening on address %s (%s)\n",
+				  listen_name, inet_ntoa (listen_addr));
+		address.sin_addr.s_addr = listen_addr.s_addr;
+	}
+	else
+		address.sin_addr.s_addr = htonl (INADDR_ANY);
 	address.sin_port = htons (master_port);
 	if (bind (sock, (struct sockaddr*)&address, sizeof (address)) != 0)
 	{

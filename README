@@ -53,9 +53,11 @@ memory, by design.
 
 * CHANGES:
 
-    - version 1.3.2 (CVS):
-        Modified Makefile to please BSD make
+    - version 1.4:
+        Dpmaster now quits if it can't chroot, switch privileges or daemonize
         Packets coming from a loopback address are now rejected with a warning
+        Listen address option added (-l)
+        Modified Makefile to please BSD make
 
     - version 1.3.1:
         SECURITY WARNING: 2 exploitable buffer overflows were fixed
