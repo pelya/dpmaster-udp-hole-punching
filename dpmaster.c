@@ -43,7 +43,7 @@
 // ---------- Constants ---------- //
 
 // Version of dpmaster
-#define VERSION "1.1 beta 2"
+#define VERSION "1.1"
 
 // Maximum number of servers in all lists by default
 #define DEFAULT_MAX_NB_SERVERS 128
@@ -64,7 +64,7 @@
 
 // Maximum and minimum sizes for a valid packet
 #define MAX_PACKET_SIZE 2048
-#define MIN_PACKET_SIZE 5
+#define MIN_PACKET_SIZE 10
 
 // Timeouts (in secondes)
 #define TIMEOUT_HEARTBEAT		2
@@ -527,7 +527,7 @@ static qboolean ParseCommandLine (int argc, char* argv [])
 	if (valid_options)
 	{
 #ifndef WIN32
-		// If we run as a daemon on UNIX, don't bother printing anything
+		// If we run as a daemon, don't bother printing anything
 		if (daemon_mode)
 			max_msg_level = MSG_NOPRINT;
 		else
@@ -561,7 +561,7 @@ static void PrintHelp (void)
 			  "                     only available when running with super-user privileges\n"
 #endif
 			  "  -n <max_servers> : maximum number of servers recorded (default: %u)\n"
-			  "  -p <port_num>    : use port <port_num> (default: %hu)\n"
+			  "  -p <port_num>    : use port <port_num> (default: %u)\n"
 #ifndef WIN32
 			  "  -u <user>        : use <user> privileges (default: %s)\n"
 			  "                     only available when running with super-user privileges\n"
@@ -1175,20 +1175,38 @@ int main (int argc, char* argv [])
 		addrlen = sizeof (address);
 		nb_bytes = recvfrom (sock, packet, sizeof (packet) - 1, 0,
 							 (struct sockaddr*)&address, &addrlen);
-		if (nb_bytes <= MIN_PACKET_SIZE || *((int*)packet) != 0xFFFFFFFF)
+		if (nb_bytes <= 0)
 		{
 			MsgPrint (MSG_WARNING, "> WARNING: \"recvfrom\" returned %d\n", nb_bytes);
 			continue;
 		}
 
+		// We print the packet contents if necessary
+		if (max_msg_level >= MSG_DEBUG)
+		{
+			MsgPrint (MSG_DEBUG, "> New packet received: ");
+			PrintPacket (packet, nb_bytes);
+		}
+
 		// A few sanity checks
+		if (nb_bytes < MIN_PACKET_SIZE)
+		{
+			MsgPrint (MSG_WARNING, "> WARNING: rejected packet (size = %d bytes)\n",
+					  nb_bytes);
+			continue;
+		}
+		if (*((int*)packet) != 0xFFFFFFFF)
+		{
+			MsgPrint (MSG_WARNING, "> WARNING: rejected packet (invalid header)\n");
+			continue;
+		}
 		if (! ntohs (address.sin_port))
 		{
 			MsgPrint (MSG_WARNING, "> WARNING: rejected packet (source port = 0)\n");
 			continue;
 		}
 		
-		// We rebuild the peer address buffer, unless we don't print anything
+		// If we may have to print something, we rebuild the peer address buffer
 		if (max_msg_level != MSG_NOPRINT)
 			snprintf (peer_address, sizeof (peer_address), "%s:%hu",
 					  inet_ntoa (address.sin_addr), ntohs (address.sin_port));
@@ -1196,13 +1214,8 @@ int main (int argc, char* argv [])
 		// We append a '\0' to make the parsing easier
 		packet[nb_bytes] = '\0';
 
-		// We update the current time and print the packet if necessary
+		// We update the current time
 		crt_time = time (NULL);
-		if (max_msg_level >= MSG_DEBUG)
-		{
-			MsgPrint (MSG_DEBUG, "> Packet dump: ");
-			PrintPacket (packet, nb_bytes);
-		}
 
 		// If the sender address is the loopback address, we try
 		// to translate it into a valid internet address
