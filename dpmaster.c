@@ -93,15 +93,11 @@
 #define S2M_HEARTBEAT "heartbeat"
 #define S2M_HEARTBEAT_DARKPLACES "heartbeat DarkPlaces\x0A"
 #define S2M_HEARTBEAT_QUAKE3 "heartbeat QuakeArena-1\x0A"
-#define S2M_HEARTBEAT_QUAKE2 "heartbeat\x0A"
-
-// ping is sent by a Q2/QFusion server for unknown reasons, reply with "ack"
-#define S2M_PING "ping"
-#define M2S_PING_ACK q2ack
+#define S2M_HEARTBEAT_QFUSION "heartbeat QFusion\x0A"
 
 // "getinfo" is sent by a master to a server when the former needs some infos
 // about it. Optionally, a challenge (a string) can be added to the message
-// Q3 & DP: "getinfo A_Challenge"
+// Q3 & DP & QFusion: "getinfo A_Challenge"
 #define M2S_GETINFO "getinfo"
 
 // An "infoResponse" message is the reponse to a "getinfo" request
@@ -109,7 +105,7 @@
 // "sv_maxclients", "protocol" and "clients" must be present. For DP,
 // "gamename" is mandatory too. If the "getinfo" request contained
 // a challenge, it must be included (info name: "challenge")
-// Q3 & DP: "infoResponse\x0A\\pure\\1\\..."
+// Q3 & DP & QFusion: "infoResponse\x0A\\pure\\1\\..."
 #define S2M_INFORESPONSE "infoResponse\x0A"
 
 /*
@@ -123,15 +119,21 @@ Example of packet for "infoReponse" (Q3):
 // "getservers" is sent by a client who wants to get a list of servers.
 // The message must contain a protocol version, and optionally "empty" and/or
 // "full" depending on whether or not the client also wants to get empty
-// or full servers. DP requires the client to precise the gamemode it runs,
+// or full servers. DP requires the client to specify the gamemode it runs,
 // right before the protocol number.
 // Q3: "getservers 67 empty full"
+// DP: "getservers DarkPlaces-Quake 3 empty full"
+// DP: "getservers DarkPlaces-Hipnotic 3 empty full"
+// DP: "getservers DarkPlaces-Rogue 3 empty full"
+// DP: "getservers DarkPlaces-Nehahra 3 empty full"
+// DP: "getservers Nexuiz 3 empty full"
 // DP: "getservers Transfusion 3 empty full"
+// QFusion: "getservers baseq3 39 empty full"
 #define C2M_GETSERVERS "getservers"
 
 // "getserversResponse" messages contain a list of servers requested
 // by a client. It's a list of IPv4 addresses and ports.
-// Q3 & DP: "getserversResponse\\...(6 bytes)...\\...(6 bytes)...\\EOT\0\0\0"
+// Q3 & DP & QFusion: "getserversResponse\\...(6 bytes)...\\...(6 bytes)...\\EOT\0\0\0"
 #define M2C_GETSERVERSREPONSE "getserversResponse"
 
 
@@ -146,8 +148,8 @@ typedef int socklen_t;
 #endif
 
 // Supported games and their names
-typedef enum {GAME_NONE, GAME_QUAKE2, GAME_QUAKE3, GAME_DARKPLACES} game_t;
-const char* game_str [] = {"UNKNOWN", "Quake II", "Quake III Arena", "DarkPlaces"};
+typedef enum {GAME_NONE, GAME_QUAKE3, GAME_DARKPLACES, GAME_QFUSION} game_t;
+const char* game_str [] = {"UNKNOWN", "Quake III Arena", "DarkPlaces", "QFusion"};
 
 // Server properties
 typedef struct server_s
@@ -1049,57 +1051,11 @@ static void HandleInfoResponse (server_t* server, const qbyte* msg)
 
 /*
 ====================
-HandleQ2Heartbeat
-
-Parse Q2 heartbeat messages
-====================
-*/
-static void HandleQ2Heartbeat (server_t* server, const qbyte* msg)
-{
-	char* value;
-	unsigned int new_protocol = 0, new_maxclients = 0;
-
-	MsgPrint (MSG_DEBUG, "> %s ---> heartbeat\n", peer_address);
-
-	// Check and save the values of "protocol" and "maxclients"
-	value = SearchInfostring (msg, "protocol");
-	if (value)
-		new_protocol = atoi (value);
-	value = SearchInfostring (msg, "sv_maxclients");
-	if (value)
-		new_maxclients = atoi (value);
-	if (!new_protocol || !new_maxclients)
-	{
-		MsgPrint (MSG_ERROR,
-				  "> ERROR: invalid data from %s (protocol: %d, maxclients: %d)\n",
-				  peer_address, new_protocol, new_maxclients);
-		return;
-	}
-	server->protocol = new_protocol;
-	server->maxclients = new_maxclients;
-
-	// Save some other useful values
-	// LordHavoc: I did not find this in sample heartbeats but left it in
-	value = SearchInfostring (msg, "clients");
-	if (value)
-		server->nbclients = atoi (value);
-	value = SearchInfostring (msg, "gamename");
-	if (value)
-		strncpy (server->gamename, value, sizeof (server->gamename) - 1);
-
-	// Set a new timeout
-	server->timeout = crt_time + TIMEOUT_INFORESPONSE;
-}
-
-
-/*
-====================
 HandleMessage
 
 Parse a packet to figure out what to do with it
 ====================
 */
-qbyte q2ack[8] = {255, 255, 255, 255, 'a', 'c', 'k', 0};
 static void HandleMessage (const qbyte* msg, size_t length,
 						   const struct sockaddr_in* address)
 {
@@ -1114,8 +1070,8 @@ static void HandleMessage (const qbyte* msg, size_t length,
 			game = GAME_DARKPLACES;
 		else if (!strncmp (msg, S2M_HEARTBEAT_QUAKE3, strlen(S2M_HEARTBEAT_QUAKE3)))
 			game = GAME_QUAKE3;
-		else if (!strncmp (msg, S2M_HEARTBEAT_QUAKE2, strlen(S2M_HEARTBEAT_QUAKE2)))
-			game = GAME_QUAKE2;
+		else if (!strncmp (msg, S2M_HEARTBEAT_QFUSION, strlen(S2M_HEARTBEAT_QFUSION)))
+			game = GAME_QFUSION;
 		else
 			game = GAME_NONE;
 
@@ -1130,22 +1086,14 @@ static void HandleMessage (const qbyte* msg, size_t length,
 
 		server->game = game;
 
-		if (game == GAME_QUAKE2)
-		{
-			// Quake2 puts the info in the heartbeat
-			HandleQ2Heartbeat (server, msg + strlen(S2M_HEARTBEAT_QUAKE2));
-		}
-		else
-		{
-			// If we haven't yet received any infoResponse from this server,
-			// we let it some more time to contact us. After that, only
-			// infoResponse messages can update the timeout value.
-			if (!server->maxclients)
-				server->timeout = crt_time + TIMEOUT_HEARTBEAT;
+		// If we haven't yet received any infoResponse from this server,
+		// we let it some more time to contact us. After that, only
+		// infoResponse messages can update the timeout value.
+		if (!server->maxclients)
+			server->timeout = crt_time + TIMEOUT_HEARTBEAT;
 
-			// Ask for some infos
-			SendGetInfo (server);
-		}
+		// Ask for some infos
+		SendGetInfo (server);
 	}
 
 	// If it's an infoResponse message
@@ -1162,14 +1110,6 @@ static void HandleMessage (const qbyte* msg, size_t length,
 	else if (!strncmp (C2M_GETSERVERS, msg, strlen (C2M_GETSERVERS)))
 	{
 		HandleGetServers (msg + strlen (C2M_GETSERVERS), address);
-	}
-
-	// If it's a ping request (Q2/QFusion)
-	else if (!strncmp (S2M_PING, msg, strlen (S2M_PING)))
-	{
-		MsgPrint (MSG_NORMAL, "> %s ---> ping\n", peer_address);
-		MsgPrint (MSG_DEBUG, "> %s <--- ack\n", peer_address);
-		sendto (sock, M2S_PING_ACK, strlen(M2S_PING_ACK), 0, (const struct sockaddr*)address, sizeof (*address));
 	}
 }
 
@@ -1229,7 +1169,7 @@ int main (int argc, char* argv [])
 
 	MsgPrint (MSG_NORMAL,
 			  "\n"
-			  "dpmaster, a master server for DarkPlaces, Quake III Arena, QFusion and Quake2\n"
+			  "dpmaster, a master server for DarkPlaces, Quake III Arena and QFusion\n"
 			  "(version " VERSION ", compiled the " __DATE__ " at " __TIME__ ")\n"
 			  "\n");
 
