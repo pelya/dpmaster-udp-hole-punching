@@ -1,7 +1,7 @@
 
 CFLAGS= -MD -Wall -Werror -O2
 
-LDFLAGS= -lwinmm -lwsock32
+LDFLAGS= -lwsock32
 
 all: dpmaster.exe
 
@@ -12,7 +12,7 @@ dpmaster.exe: dpmaster.o
 	gcc -o $@ $^ $(LDFLAGS)
 
 clean:
-	del dpmaster
+	del dpmaster.exe
 	del *.o
 	del *.d
 
