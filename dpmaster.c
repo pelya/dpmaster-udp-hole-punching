@@ -66,8 +66,9 @@
 #define MIN_PACKET_SIZE 5
 
 // Timeouts (in secondes)
-#define TIMEOUT_HEARTBEAT    (4 * 60)
-#define TIMEOUT_INFORESPONSE (15 * 60)
+#define TIMEOUT_1ST_HEARTBEAT	2
+#define TIMEOUT_HEARTBEAT		(4 * 60)
+#define TIMEOUT_INFORESPONSE	(15 * 60)
 
 // Period of validity for a challenge string (in secondes)
 #define VALIDITY_CHALLENGE 2
@@ -240,7 +241,7 @@ static void PrintPacket (const qbyte* packet, size_t length)
 
 	// Exceptionally, we use MSG_NOPRINT here because if the function is
 	// called, the user probably wants this text to be displayed
-	// whatever the minimum message level is.
+	// whatever the maximum message level is.
 	MsgPrint (MSG_NOPRINT, "\"");
 
 	for (i = 0; i < length; i++)
@@ -526,8 +527,9 @@ static unsigned int AddressHash (const struct sockaddr_in* address)
 {
 	qbyte* addr = (qbyte*)&address->sin_addr.s_addr;
 	qbyte* port = (qbyte*)&address->sin_port;
-	qbyte hash =  addr[0] ^ addr[1] ^ addr[2] ^ addr[3] ^ port[0] ^ port[1];
+	qbyte hash;
 	
+	hash = addr[0] ^ addr[1] ^ addr[2] ^ addr[3] ^ port[0] ^ port[1];
 	return hash & HASH_BITMASK;
 }
 
@@ -561,7 +563,7 @@ GetServer
 Search for a particular server in the list; add it if necessary
 ====================
 */
-static server_t* GetServer (const struct sockaddr_in* address, qboolean add_it)
+static server_t* GetServer (const struct sockaddr_in* address, qboolean heartbeat)
 {
 	unsigned int i, hash = AddressHash (address);
 	server_t **prev, *sv;
@@ -590,6 +592,9 @@ static server_t* GetServer (const struct sockaddr_in* address, qboolean add_it)
 			sv->next = server_lists[hash];
 			server_lists[hash] = sv;
 
+			// Set the new timeout value
+			sv->timeout = crt_time + TIMEOUT_HEARTBEAT;
+
 			return sv;
 		}
 
@@ -597,8 +602,12 @@ static server_t* GetServer (const struct sockaddr_in* address, qboolean add_it)
 		sv = sv->next;
 	}
 	
-	if (!add_it)
+	if (! heartbeat)
 		return NULL;
+
+	// We increment "sv_added_count" even if there's no free slot left
+	// to make sure CheckTimeouts will be called sooner or later
+	sv_added_count++;
 
 	// No more room?
 	if (nb_servers == max_nb_servers)
@@ -610,7 +619,6 @@ static server_t* GetServer (const struct sockaddr_in* address, qboolean add_it)
 			break;
 	sv = &servers[i];
 	last_alloc = i;
-	sv_added_count++;
 
 	// Initialize the structure
 	memset (sv, 0, sizeof (*sv));
@@ -620,6 +628,9 @@ static server_t* GetServer (const struct sockaddr_in* address, qboolean add_it)
 	sv->next = server_lists[hash];
 	server_lists[hash] = sv;
 	nb_servers++;
+
+	// Set the new timeout value
+	sv->timeout = crt_time + TIMEOUT_1ST_HEARTBEAT;
 
 	MsgPrint (MSG_NORMAL,
 			  "> New server added: %s; %u servers are currently registered\n",
@@ -893,9 +904,6 @@ static void HandleMessage (const qbyte* msg, size_t length,
 			return;
 
 		server->game = game;
-
-		// Set the new timeout value
-		server->timeout = crt_time + TIMEOUT_HEARTBEAT;
 
 		// Ask for some infos
 		SendGetInfo (server);
