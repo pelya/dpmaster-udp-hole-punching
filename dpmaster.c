@@ -249,6 +249,9 @@ static int MsgPrint (msg_level_t msg_level, const char* format, ...)
 	result = vprintf (format, args);
 	va_end (args);
 
+	// LordHavoc: added to make logging more useful
+	fflush(stdout);
+
 	return result;
 }
 
