@@ -41,7 +41,7 @@
 // ---------- Constants ---------- //
 
 // Version of dpmaster
-#define VERSION "1.0"
+#define VERSION "1.01"
 
 // Maximum number of servers in all lists by default
 #define DEFAULT_MAX_NB_SERVERS 256
@@ -413,7 +413,7 @@ static qboolean MasterInit (void)
 					host->h_addr[2] & 0xFF, host->h_addr[3] & 0xFF);
 		}
 		else
-			printf ("* WARNING: can't determine the local host address\n");
+			printf ("* WARNING: can't determine the local host IP address\n");
 	}
 	else
 		printf ("* WARNING: can't determine the local host name\n");
@@ -520,7 +520,7 @@ static server_t* GetServer (const struct sockaddr_in* address, qboolean add_it)
 	server_lists[hash] = sv;
 	nb_servers++;
 
-	printf ("  - Added to the server list (hash: 0x%02X)\n", hash);
+	printf ("  - Added to the server list (index: %u, hash: 0x%02X)\n", i, hash);
 
 	return sv;
 }
@@ -633,52 +633,55 @@ static void HandleGetServers (const qbyte* msg, const struct sockaddr_in* addr)
 			inet_ntoa (addr->sin_addr), ntohs (addr->sin_port));
 
 	// Add every relevant server
-	for (ind = 0; ind < nb_servers; ind++)
+	for (ind = 0; ind < sizeof (server_lists) / sizeof (server_lists[0]); ind++)
 	{
-		server_t* sv = &servers[ind];
+		server_t* sv;
 
-		if (packetind >= sizeof (packet) - 12)
-			break;
+		for (sv = server_lists[ind]; sv != NULL; sv = sv->next)
+		{
+			if (packetind >= sizeof (packet) - 12)
+				break;
 
-		if (sv->game != game)  // same game?
-			continue;
-		if (sv->protocol != protocol)  // same protocol?
-			continue;
-		if (sv->nbclients == 0 && no_empty)  // send empty servers?
-			continue;
-		if (sv->nbclients == sv->maxclients && no_full)  // send full servers?
-			continue;
-		if (gamename[0] && strcmp (gamename, sv->gamename))  // same mod?
-			continue;
+			if (sv->game != game)  // same game?
+				continue;
+			if (sv->protocol != protocol)  // same protocol?
+				continue;
+			if (sv->nbclients == 0 && no_empty)  // send empty servers?
+				continue;
+			if (sv->nbclients == sv->maxclients && no_full)  // send full servers?
+				continue;
+			if (gamename[0] && strcmp (gamename, sv->gamename))  // same mod?
+				continue;
 
-		// The removal of old servers is done after the parsing,
-		// so we also need to check the timeout value here
-		if (sv->timeout < crt_time)
-			continue;
+			// The removal of old servers is done after the parsing,
+			// so we also need to check the timeout value here
+			if (sv->timeout < crt_time)
+				continue;
 
-		sv_addr = ntohl (sv->address.sin_addr.s_addr);
-		sv_port = ntohs (sv->address.sin_port);
+			sv_addr = ntohl (sv->address.sin_addr.s_addr);
+			sv_port = ntohs (sv->address.sin_port);
 
-		// IP address
-		packet[packetind    ] =  sv_addr >> 24;
-		packet[packetind + 1] = (sv_addr >> 16) & 0xFF;
-		packet[packetind + 2] = (sv_addr >>  8) & 0xFF;
-		packet[packetind + 3] =  sv_addr        & 0xFF;
+			// IP address
+			packet[packetind    ] =  sv_addr >> 24;
+			packet[packetind + 1] = (sv_addr >> 16) & 0xFF;
+			packet[packetind + 2] = (sv_addr >>  8) & 0xFF;
+			packet[packetind + 3] =  sv_addr        & 0xFF;
 
-		// Port
-		packet[packetind + 4] = (sv_port >> 8) & 0xFF;
-		packet[packetind + 5] =  sv_port       & 0xFF;
+			// Port
+			packet[packetind + 4] = (sv_port >> 8) & 0xFF;
+			packet[packetind + 5] =  sv_port       & 0xFF;
 
-		// Trailing '\'
-		packet[packetind + 6] = '\\';
+			// Trailing '\'
+			packet[packetind + 6] = '\\';
 
-		if (testmode)
-			printf ("  - Sending server %u.%u.%u.%u:%u\n",
-					packet[packetind    ], packet[packetind + 1],
-					packet[packetind + 2], packet[packetind + 3],
-					sv_port);
+			if (testmode)
+				printf ("  - Sending server %u.%u.%u.%u:%u\n",
+						packet[packetind    ], packet[packetind + 1],
+						packet[packetind + 2], packet[packetind + 3],
+						sv_port);
 
-		packetind += 7;
+			packetind += 7;
+		}
 	}
 
 	// End Of Transmission
@@ -691,7 +694,7 @@ static void HandleGetServers (const qbyte* msg, const struct sockaddr_in* addr)
 	packetind += 6;
 
 	// Print a few more informations
-	printf ("  - %u servers in %u bytes\n",
+	printf ("  - %u server addresses packed in %u bytes\n",
 			(packetind - 22) / 7 - 1, packetind);
 
 	// Send the packet to the client
@@ -875,7 +878,7 @@ int main (int argc, char* argv [])
 	qbyte packet [MAX_PACKET_SIZE + 1];  // "+ 1" because we append a '\0'
 
 	printf ("\n"
-			"dpmaster, a master server for DarkPlaces and Q3A\n"
+			"dpmaster, a master server for DarkPlaces and Quake III Arena\n"
 			"(version " VERSION ", compiled the " __DATE__ " at " __TIME__ ")\n"
 			"\n");
 
