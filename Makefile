@@ -1,20 +1,36 @@
+##### Win32 variables #####
+
+ifdef windir
+
+EXE=dpmaster.exe
+LDFLAGS=-lwsock32
+CMD_RM=del
+
+##### Unix variables #####
+
+else
+
+EXE=dpmaster
+LDFLAGS=
+CMD_RM=rm -f
+
+endif
+
+##### Common variables and commands #####
 
 CFLAGS= -MD -Wall -Werror -O2
 
-LDFLAGS=
-
-all: dpmaster
+all: $(EXE)
 
 .c.o:
 	gcc $(CFLAGS) -c $*.c
 
-dpmaster: dpmaster.o
+$(EXE): dpmaster.o
 	gcc -o $@ $^ $(LDFLAGS)
 
 clean:
-	-rm -f dpmaster *.o *.d
+	-$(CMD_RM) $(EXE) *.o *.d
 
 .PHONY: clean
 
 -include *.d
-
