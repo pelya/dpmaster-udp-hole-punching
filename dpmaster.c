@@ -3,7 +3,7 @@
 
 	A master server for DarkPlaces and Q3A, based on Q3A master protocol
 
-	Copyright (C) 2002  Mathieu Olivier
+	Copyright (C) 2002-2003  Mathieu Olivier
 
 	This program is free software; you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -34,6 +34,7 @@
 # include <arpa/inet.h>
 # include <netdb.h>
 # include <netinet/in.h>
+# include <pwd.h>
 # include <sys/socket.h>
 # include <unistd.h>
 #endif
@@ -42,15 +43,15 @@
 // ---------- Constants ---------- //
 
 // Version of dpmaster
-#define VERSION "1.1 alpha"
+#define VERSION "1.1 beta 1"
 
 // Maximum number of servers in all lists by default
 #define DEFAULT_MAX_NB_SERVERS 128
 
-// Address hash: size in bits (between 0 and 8), table size and bitmask
-#define HASH_SIZE 5
-#define HASH_TABLESIZE (1 << HASH_SIZE)
-#define HASH_BITMASK ((1 << HASH_SIZE) - 1)
+// Address hash: size in bits (between 0 and MAX_HASH_SIZE) and bitmask
+#define DEFAULT_HASH_SIZE	5
+#define MAX_HASH_SIZE		8
+#define HASH_BITMASK		(hash_table_size - 1)
 
 // Number of characters in a challenge, including the '\0'
 #define CHALLENGE_LENGTH 12
@@ -72,6 +73,14 @@
 
 // Period of validity for a challenge string (in secondes)
 #define VALIDITY_CHALLENGE 2
+
+#ifndef WIN32
+// Default path we use for chroot
+# define DEFAULT_JAIL_PATH "/var/empty/"
+
+// User we use by default for dropping super-user privileges
+# define DEFAULT_LOW_PRIV_USER "nobody"
+#endif
 
 
 // Types of messages (with examples and descriptions):
@@ -162,12 +171,12 @@ typedef enum
 // ---------- Global variables ---------- //
 
 // All server structures are allocated in one block in the "servers" array.
-// Each used slot is also part of a linked list in "server_lists". A simple
-// hash of the address and port of the server gives the index of the list
-// used for a particular server.
-server_t* servers;
-server_t* server_lists [HASH_TABLESIZE];
+// Each used slot is also part of a linked list in "hash_table". A simple
+// hash of the address and port of a server gives its index in the table.
+server_t* servers = NULL;
+server_t** hash_table = NULL;
 size_t max_nb_servers = DEFAULT_MAX_NB_SERVERS;
+size_t hash_table_size = (1 << DEFAULT_HASH_SIZE);
 size_t nb_servers = 0;
 
 // Last allocated entry in the "servers" array.
@@ -194,6 +203,17 @@ msg_level_t max_msg_level = MSG_NORMAL;
 
 // Peer address. We rebuild it every time we receive a new packet
 char peer_address [128];
+
+#ifndef WIN32
+// On UNIX systems, we can run as a daemon
+qboolean daemon_mode = false;
+
+// Path we use for chroot
+const char* jail_path = DEFAULT_JAIL_PATH;
+
+// Low privileges user
+const char* low_priv_user = DEFAULT_LOW_PRIV_USER;
+#endif
 
 
 // ---------- Functions ---------- //
@@ -346,6 +366,41 @@ static qboolean SysInit (void)
 		MsgPrint (MSG_ERROR, "> ERROR: can't initialize winsocks\n");
 		return false;
 	}
+
+#else
+	// Should we run as a daemon?
+	if (daemon_mode && daemon (0, 0) != 0)
+		MsgPrint (MSG_NOPRINT, "> ERROR: daemonization failed (%s)\n",
+				  strerror (errno));
+
+	// UNIX allows us to be completely paranoid, so let's go for it
+	if (geteuid () == 0)
+	{
+		struct passwd* pw;
+
+		MsgPrint (MSG_WARNING, "> WARNING: running with super-user privileges\n");
+
+		// We must get the account infos before the calls to chroot and chdir
+		pw = getpwnam (low_priv_user);
+
+		// Chroot ourself
+		MsgPrint (MSG_NORMAL, "  - chrooting myself to %s... ", jail_path);
+		if (!chroot (jail_path) && !chdir ("/"))
+			MsgPrint (MSG_NORMAL, "succeeded\n");
+		else
+			MsgPrint (MSG_NORMAL, "FAILED (%s)\n", strerror (errno));
+
+		// Switch to lower privileges
+		MsgPrint (MSG_NORMAL, "  - switching to user \"%s\" privileges... ",
+				  low_priv_user);
+		if (pw != NULL && !setgid (pw->pw_gid) && !setuid (pw->pw_uid))
+			MsgPrint (MSG_NORMAL, "succeeded (UID: %u, GID: %u)\n",
+					  pw->pw_uid, pw->pw_gid);
+		else
+			MsgPrint (MSG_NORMAL, "FAILED (%s)\n", strerror (errno));
+
+		MsgPrint (MSG_NORMAL, "\n");
+	}
 #endif
 
 	return true;
@@ -362,29 +417,58 @@ Parse the options passed by the command line
 static qboolean ParseCommandLine (int argc, char* argv [])
 {
 	int ind = 1;
-	qboolean print_help = false;
+	unsigned int vlevel = max_msg_level;
+	qboolean valid_options = true;
 
-	while (ind < argc && !print_help)
+	while (ind < argc && valid_options)
 	{
 		// If it doesn't even look like an option, why bother?
 		if (argv[ind][0] != '-')
-			print_help = true;
+			valid_options = false;
 
 		else switch (argv[ind][1])
 		{
-			// Port number
-			case 'p':
+#ifndef WIN32
+			// Daemon mode
+			case 'D':
+				daemon_mode = true;
+				break;
+#endif
+
+			// Help
+			case 'h':
+				valid_options = false;
+				break;
+
+			// Hash size
+			case 'H':
 			{
-				unsigned short port_num = 0;
+				size_t size;
 				ind++;
-				if (ind < argc)
-					port_num = atoi (argv[ind]);
-				if (!port_num)
-					print_help = true;
+				if (ind >= argc)
+				{
+					valid_options = false;
+					break;
+				}
+
+				size = atoi (argv[ind]);
+				if (size <= MAX_HASH_SIZE)
+					hash_table_size = 1 << size;
 				else
-					master_port = port_num;
+					valid_options = false;
 				break;
 			}
+
+#ifndef WIN32
+			// Jail path
+			case 'j':
+				ind++;
+				if (ind < argc)
+					jail_path = argv[ind];
+				else
+					valid_options = false;
+				break;
+#endif
 
 			// Maximum number of servers
 			case 'n':
@@ -394,41 +478,107 @@ static qboolean ParseCommandLine (int argc, char* argv [])
 				if (ind < argc)
 					nb = atoi (argv[ind]);
 				if (!nb)
-					print_help = true;
+					valid_options = false;
 				else
 					max_nb_servers = nb;
 				break;
 			}
 
+			// Port number
+			case 'p':
+			{
+				unsigned short port_num = 0;
+				ind++;
+				if (ind < argc)
+					port_num = atoi (argv[ind]);
+				if (!port_num)
+					valid_options = false;
+				else
+					master_port = port_num;
+				break;
+			}
+
+#ifndef WIN32
+			// Low privileges user
+			case 'u':
+				ind++;
+				if (ind < argc)
+					low_priv_user = argv[ind];
+				else
+					valid_options = false;
+				break;
+#endif
+
 			// Verbose level
 			case 'v':
 				ind++;
-				max_msg_level = ((ind < argc) ? atoi (argv[ind]) : MSG_DEBUG);
+				vlevel = ((ind < argc) ? atoi (argv[ind]) : MSG_DEBUG);
+				if (vlevel > MSG_DEBUG)
+					valid_options = false;
 				break;
 
 			default:
-				print_help = true;
+				valid_options = false;
 		}
 		
 		ind++;
 	}
-	
-	if (print_help)
+
+	// If the command line is OK, we can set the verbose level now
+	if (valid_options)
 	{
-		MsgPrint (MSG_ERROR,
-				  "Syntax: dpmaster [options]\n"
-				  "Available options are:\n"
-				  "  -n <max_servers> : maximum number of servers recorded (default: %u)\n"
-				  "  -p <port_num>    : use port <port_num> (default: %hu)\n"
-				  "  -v [verbose_lvl] : verbose level, up to %u (default: %u)\n"
-				  "\n",
-				  DEFAULT_MAX_NB_SERVERS, DEFAULT_MASTER_PORT,
-				  MSG_DEBUG, MSG_NORMAL);
-
-		return false;
+#ifndef WIN32
+		// If we run as a daemon on UNIX, don't bother printing anything
+		if (daemon_mode)
+			max_msg_level = MSG_NOPRINT;
+		else
+#endif
+			max_msg_level = vlevel;
 	}
+	
+	return valid_options;
+}
 
-	return true;
+
+/*
+====================
+PrintHelp
+
+Print the command line syntax and the available options
+====================
+*/
+static void PrintHelp (void)
+{
+	MsgPrint (MSG_ERROR,
+			  "Syntax: dpmaster [options]\n"
+			  "Available options are:\n"
+#ifndef WIN32
+			  "  -D               : run as a daemon\n"
+#endif
+			  "  -h               : this help\n"
+			  "  -H <hash_size>   : hash size in bits, up to %u (default: %u)\n"
+#ifndef WIN32
+			  "  -j <jail_path>   : use <jail_path> as chroot path (default: %s)\n"
+			  "                     only available when running with super-user privileges\n"
+#endif
+			  "  -n <max_servers> : maximum number of servers recorded (default: %u)\n"
+			  "  -p <port_num>    : use port <port_num> (default: %hu)\n"
+#ifndef WIN32
+			  "  -u <user>        : use <user> privileges (default: %s)\n"
+			  "                     only available when running with super-user privileges\n"
+#endif
+			  "  -v [verbose_lvl] : verbose level, up to %u (default: %u)\n"
+			  "\n",
+			  MAX_HASH_SIZE, DEFAULT_HASH_SIZE,
+#ifndef WIN32
+			  DEFAULT_JAIL_PATH,
+#endif
+			  DEFAULT_MAX_NB_SERVERS,
+			  DEFAULT_MASTER_PORT,
+#ifndef WIN32
+			  DEFAULT_LOW_PRIV_USER,
+#endif
+			  MSG_DEBUG, MSG_NORMAL);
 }
 
 
@@ -449,7 +599,7 @@ static qboolean MasterInit (void)
 	crt_time = time (NULL);
 	srand (crt_time);
 
-	// Allocate "servers" and clean the arrays
+	// Allocate "servers" and clean it
 	array_size = max_nb_servers * sizeof (servers[0]);
 	servers = malloc (array_size);
 	if (!servers)
@@ -460,8 +610,20 @@ static qboolean MasterInit (void)
 	}
 	last_alloc = max_nb_servers - 1;
 	memset (servers, 0, array_size);
-	memset (server_lists, 0, sizeof (server_lists));
 	MsgPrint (MSG_NORMAL, "> %u server records allocated\n", max_nb_servers);
+
+	// Allocate "hash_table" and clean it
+	array_size = hash_table_size * sizeof (hash_table[0]);
+	hash_table = malloc (array_size);
+	if (!hash_table)
+	{
+		MsgPrint (MSG_ERROR, "> ERROR: can't allocate the hash table (%s)\n",
+				  strerror (errno));
+		free (servers);
+		return false;
+	}
+	memset (hash_table, 0, array_size);
+	MsgPrint (MSG_NORMAL, "> Hash table allocated (%u entries)\n", hash_table_size);
 	
 	// Get our own non-local address (i.e. not 127.x.x.x)
 	localaddr.s_addr = 0;
@@ -563,13 +725,13 @@ GetServer
 Search for a particular server in the list; add it if necessary
 ====================
 */
-static server_t* GetServer (const struct sockaddr_in* address, qboolean heartbeat)
+static server_t* GetServer (const struct sockaddr_in* address, qboolean add_it)
 {
 	unsigned int i, hash = AddressHash (address);
 	server_t **prev, *sv;
 
-	prev = &server_lists[hash];
-	sv = server_lists[hash];
+	prev = &hash_table[hash];
+	sv = hash_table[hash];
 
 	while (sv)
 	{
@@ -589,11 +751,8 @@ static server_t* GetServer (const struct sockaddr_in* address, qboolean heartbea
 			// Put it on top of the list (it's useful because heartbeats
 			// are almost always followed by infoResponses)
 			*prev = sv->next;
-			sv->next = server_lists[hash];
-			server_lists[hash] = sv;
-
-			// Set the new timeout value
-			sv->timeout = crt_time + TIMEOUT_HEARTBEAT;
+			sv->next = hash_table[hash];
+			hash_table[hash] = sv;
 
 			return sv;
 		}
@@ -602,7 +761,7 @@ static server_t* GetServer (const struct sockaddr_in* address, qboolean heartbea
 		sv = sv->next;
 	}
 	
-	if (! heartbeat)
+	if (! add_it)
 		return NULL;
 
 	// We increment "sv_added_count" even if there's no free slot left
@@ -622,19 +781,17 @@ static server_t* GetServer (const struct sockaddr_in* address, qboolean heartbea
 
 	// Initialize the structure
 	memset (sv, 0, sizeof (*sv));
-	memcpy (&sv->address, address, sizeof (*address));
+	memcpy (&sv->address, address, sizeof (sv->address));
 
 	// Add it to the list it belongs to
-	sv->next = server_lists[hash];
-	server_lists[hash] = sv;
+	sv->next = hash_table[hash];
+	hash_table[hash] = sv;
 	nb_servers++;
-
-	// Set the new timeout value
-	sv->timeout = crt_time + TIMEOUT_1ST_HEARTBEAT;
 
 	MsgPrint (MSG_NORMAL,
 			  "> New server added: %s; %u servers are currently registered\n",
 			  peer_address, nb_servers);
+	MsgPrint (MSG_DEBUG, "  - index: %u\n  - hash: 0x%02X\n", i, hash);
 
 	return sv;
 }
@@ -744,10 +901,10 @@ static void HandleGetServers (const qbyte* msg, const struct sockaddr_in* addr)
 	MsgPrint (MSG_DEBUG, "> %s <--- getserversResponse\n", peer_address);
 
 	// Add every relevant server
-	for (ind = 0; ind < sizeof (server_lists) / sizeof (server_lists[0]); ind++)
+	for (ind = 0; ind < hash_table_size; ind++)
 	{
-		server_t* sv = server_lists[ind];
-		server_t** prev = &server_lists[ind];
+		server_t* sv = hash_table[ind];
+		server_t** prev = &hash_table[ind];
 
 		while (sv)
 		{
@@ -817,6 +974,11 @@ static void HandleGetServers (const qbyte* msg, const struct sockaddr_in* addr)
 	// Send the packet to the client
 	sendto (sock, packet, packetind, 0, (const struct sockaddr*)addr,
 			sizeof (*addr));
+
+	// If we have browsed the entire list (and so checked all timeout values),
+	// we reset sv_added_count to avoid calling CheckTimeouts anytime soon
+	if (ind >= hash_table_size)
+		sv_added_count = 0;
 }
 
 
@@ -905,6 +1067,12 @@ static void HandleMessage (const qbyte* msg, size_t length,
 
 		server->game = game;
 
+		// Set the new timeout value
+		if (!server->protocol)  // we haven't yet received a response from it
+			server->timeout = crt_time + TIMEOUT_1ST_HEARTBEAT;
+		else
+			server->timeout = crt_time + TIMEOUT_HEARTBEAT;
+
 		// Ask for some infos
 		SendGetInfo (server);
 	}
@@ -941,10 +1109,10 @@ void CheckTimeouts (void)
 	server_t** prev;
 
 	// Browse every server list
-	for (ind = 0; ind < sizeof (server_lists) / sizeof (server_lists[0]); ind++)
+	for (ind = 0; ind < hash_table_size; ind++)
 	{
-		sv = server_lists[ind];
-		prev = &server_lists[ind];
+		sv = hash_table[ind];
+		prev = &hash_table[ind];
 
 		while (sv)
 		{
@@ -975,6 +1143,10 @@ int main (int argc, char* argv [])
 	socklen_t addrlen;
 	int nb_bytes;
 	qbyte packet [MAX_PACKET_SIZE + 1];  // "+ 1" because we append a '\0'
+	qboolean valid_options;
+
+	// Get the options from the command line
+	valid_options = ParseCommandLine (argc, argv);
 
 	MsgPrint (MSG_NORMAL,
 			  "\n"
@@ -982,8 +1154,15 @@ int main (int argc, char* argv [])
 			  "(version " VERSION ", compiled the " __DATE__ " at " __TIME__ ")\n"
 			  "\n");
 
+	// If there was a mistake in the command line, print the help and exit
+	if (!valid_options)
+	{
+		PrintHelp ();
+		return EXIT_FAILURE;
+	}
+
 	// Initializations
-	if (!ParseCommandLine (argc, argv) || !SysInit () || !MasterInit ())
+	if (!SysInit () || !MasterInit ())
 		return EXIT_FAILURE;
 	MsgPrint (MSG_NORMAL, "\n");
 
@@ -1007,9 +1186,10 @@ int main (int argc, char* argv [])
 			continue;
 		}
 		
-		// We rebuild the peer address buffer
-		snprintf (peer_address, sizeof (peer_address), "%s:%hu",
-				  inet_ntoa (address.sin_addr), ntohs (address.sin_port));
+		// We rebuild the peer address buffer, unless we don't print anything
+		if (max_msg_level != MSG_NOPRINT)
+			snprintf (peer_address, sizeof (peer_address), "%s:%hu",
+					  inet_ntoa (address.sin_addr), ntohs (address.sin_port));
 
 		// We append a '\0' to make the parsing easier
 		packet[nb_bytes] = '\0';
