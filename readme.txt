@@ -16,9 +16,10 @@ supported too.
 
 Although dpmaster is being developed primarily on a Linux machine (i386), it
 should compile and run at least on any operating system from the Win32 or UNIX
-family. But be aware that some options are only available on UNIXes, including
-all security-related options. See the SECURITY section below for more
-information.
+family. Take a look at the "COMPILING DPMASTER" section in "techinfo.txt" for
+more information. Be aware that some options are only available on UNIXes,
+including all security-related options. Take a look at the "SECURITY" section
+below for more information.
 
 The source code of dpmaster is available under the GNU General Public License.
 
@@ -123,7 +124,7 @@ loopback address.
 
 * CHANGES:
 
-    - version 2.0cvs:
+    - version 1.5cvs:
         Address mapping added (see ADDRESS MAPPING above)
         Servers on a loopback address are accepted again if they have a mapping
         A valid "infoReponse" is now rejected if its challenge has timed out
@@ -172,7 +173,14 @@ loopback address.
 You can get more informations and the latest versions of DarkPlaces and
 dpmaster on the DarkPlaces home page: http://icculus.org/twilight/darkplaces/
 
+If dpmaster doesn't fit you needs, please drop me an email. Your opinion may be
+very valuable to me for evolving dpmaster to a better tool. Alternatively, you
+may be interested by Hendrik Lipka's Q3Master. It's a master server for Q3A and
+derived games such as "Return to Castle Wolfenstein". It's written in Java and
+its code is available under the GNU GPL licence:
+http://www.hendriklipka.de/java/q3master.html
+
 
 --
 Mathieu Olivier
-molivier (AT) users.sourceforge.net
+molivier (A) users.sourceforge.net

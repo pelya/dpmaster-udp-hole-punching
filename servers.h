@@ -25,13 +25,6 @@
 #define _SERVERS_H_
 
 
-#ifdef WIN32
-# include <winsock2.h>
-#else
-# include <netdb.h>
-# include <netinet/in.h>
-#endif
-
 // ---------- Constants ---------- //
 
 // Maximum number of servers in all lists by default

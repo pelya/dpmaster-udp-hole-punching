@@ -39,54 +39,25 @@
 #define GAMENAME_Q3A "Quake3Arena"
 
 
-// Types of messages (with examples and descriptions):
+// Types of messages (with samples):
 
-// The heartbeat is sent by a server when it wants to get noticed by a master.
-// A server should send an heartbeat each time its state changes (new map,
-// new player, shutdown, ...) and at least each 5 minutes.
 // Q3: "heartbeat QuakeArena-1\x0A"
 // DP: "heartbeat DarkPlaces\x0A"
 // QFusion: "heartbeat QFusion\x0A"
 #define S2M_HEARTBEAT "heartbeat"
 
-// "getinfo" is sent by a master to a server when the former needs some infos
-// about it. Optionally, a challenge (a string) can be added to the message
 // Q3 & DP & QFusion: "getinfo A_Challenge"
 #define M2S_GETINFO "getinfo"
 
-// An "infoResponse" message is the reponse to a "getinfo" request
-// Its infostring contains a number of important infos about the server.
-// "sv_maxclients", "protocol" and "clients" must be present. Except for Q3,
-// "gamename" is mandatory too. If the "getinfo" request contained
-// a challenge, it must be included (info name: "challenge")
 // Q3 & DP & QFusion: "infoResponse\x0A\\pure\\1\\..."
 #define S2M_INFORESPONSE "infoResponse\x0A"
 
-/*
-Example of packet for "infoReponse" (Q3):
-
-"\xFF\xFF\xFF\xFFinfoResponse\x0A"
-"\\sv_allowAnonymous\\0\\pure\\1\\gametype\\0\\sv_maxclients\\8\\clients\\0"
-"\\mapname\\q3tourney2\\hostname\\isidore\\protocol\\67\\challenge\\Ch4L-leng3"
-*/
-
-// "getservers" is sent by a client who wants to get a list of servers.
-// The message must contain a protocol version, and optionally "empty" and/or
-// "full" depending on whether or not the client also wants to get empty
-// or full servers. Except for Q3, the client has to specify its gamename,
-// right before the protocol number.
 // Q3: "getservers 67 empty full"
 // DP: "getservers DarkPlaces-Quake 3 empty full"
-// DP: "getservers DarkPlaces-Hipnotic 3 empty full"
-// DP: "getservers DarkPlaces-Rogue 3 empty full"
-// DP: "getservers DarkPlaces-Nehahra 3 empty full"
-// DP: "getservers Nexuiz 3 empty full"
 // DP: "getservers Transfusion 3 empty full"
 // QFusion: "getservers qfusion 39 empty full"
 #define C2M_GETSERVERS "getservers "
 
-// "getserversResponse" messages contain a list of servers requested
-// by a client. It's a list of IPv4 addresses and ports.
 // Q3 & DP & QFusion:
 // "getserversResponse\\...(6 bytes)...\\...(6 bytes)...\\EOT\0\0\0"
 #define M2C_GETSERVERSREPONSE "getserversResponse"

@@ -31,6 +31,7 @@ mingw:
 
 $(EXE): $(OBJECTS)
 	$(CC) -o $@ $(OBJECTS) $(LDFLAGS)
+	strip $@
 
 clean:
 	-$(UNIX_RM) $(WIN32_EXE)

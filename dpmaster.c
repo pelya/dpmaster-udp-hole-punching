@@ -25,7 +25,6 @@
 
 #ifndef WIN32
 # include <pwd.h>
-# include <sys/socket.h>
 # include <unistd.h>
 #endif
 
@@ -37,7 +36,7 @@
 // ---------- Constants ---------- //
 
 // Version of dpmaster
-#define VERSION "2.0cvs"
+#define VERSION "1.5cvs"
 
 // Default master port
 #define DEFAULT_MASTER_PORT 27950
