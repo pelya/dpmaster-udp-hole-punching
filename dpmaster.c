@@ -156,7 +156,7 @@ PrintPacket
 
 Print the contents of a packet on stdout
 ====================
-*
+*/
 static void PrintPacket (const byte* packet, size_t length)
 {
 	size_t i;
@@ -171,7 +171,6 @@ static void PrintPacket (const byte* packet, size_t length)
 			printf ("\\x%02X", c);
 	}
 }
-*/
 
 /*
 ====================
