@@ -36,7 +36,7 @@
 // ---------- Constants ---------- //
 
 // Version of dpmaster
-#define VERSION "1.5cvs"
+#define VERSION "1.5"
 
 // Default master port
 #define DEFAULT_MASTER_PORT 27950
@@ -554,11 +554,17 @@ int main (int argc, const char* argv [])
 			continue;
 		}
 
+		// If we may have to print something, rebuild the peer address buffer
+		if (max_msg_level != MSG_NOPRINT)
+			snprintf (peer_address, sizeof (peer_address), "%s:%hu",
+					  inet_ntoa (address.sin_addr), ntohs (address.sin_port));
+
 		// We print the packet contents if necessary
 		// TODO: print the current time here
 		if (max_msg_level >= MSG_DEBUG)
 		{
-			MsgPrint (MSG_DEBUG, "> New packet received: ");
+			MsgPrint (MSG_DEBUG, "> New packet received from %s: ",
+					  peer_address);
 			PrintPacket (packet, nb_bytes);
 		}
 
@@ -566,27 +572,24 @@ int main (int argc, const char* argv [])
 		if (nb_bytes < MIN_PACKET_SIZE)
 		{
 			MsgPrint (MSG_WARNING,
-					  "> WARNING: rejected packet (size = %d bytes)\n",
-					  nb_bytes);
+					  "> WARNING: rejected packet from %s (size = %d bytes)\n",
+					  peer_address, nb_bytes);
 			continue;
 		}
 		if (*((unsigned int*)packet) != 0xFFFFFFFF)
 		{
 			MsgPrint (MSG_WARNING,
-					  "> WARNING: rejected packet (invalid header)\n");
+					  "> WARNING: rejected packet from %s (invalid header)\n",
+					  peer_address);
 			continue;
 		}
 		if (! ntohs (address.sin_port))
 		{
 			MsgPrint (MSG_WARNING,
-					  "> WARNING: rejected packet (source port = 0)\n");
+					  "> WARNING: rejected packet from %s (source port = 0)\n",
+					  peer_address);
 			continue;
 		}
-
-		// If we may have to print something, rebuild the peer address buffer
-		if (max_msg_level != MSG_NOPRINT)
-			snprintf (peer_address, sizeof (peer_address), "%s:%hu",
-					  inet_ntoa (address.sin_addr), ntohs (address.sin_port));
 
 		// Append a '\0' to make the parsing easier and update the current time
 		packet[nb_bytes] = '\0';

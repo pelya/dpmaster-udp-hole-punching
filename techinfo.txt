@@ -15,9 +15,9 @@ systems using MinGW32 (GCC for Win32). Occasionally, dpmaster may not compile
 on these configurations, but if you're a C developer you should be able to
 solve the problem(s) easily.
 
-Although great care has been taken to endianess and CPU word size potential
-issues, dpmaster has never be compiled or run on non-PC hardware. Please report
-us any (un)successful attempt to compile and run dpmaster on such a system.
+Although great care has been taken to potential issues regarding endianess and
+CPU word size, dpmaster has never be compiled or run on non-PC hardware. Please
+report us any (un)successful attempt on such a system.
 
 To compile dpmaster using GCC on a UNIX system, just type "make". To clean the
 directory from the binary and temporary files, type "make clean". Note that
@@ -164,14 +164,14 @@ When dpmaster receives an "heartbeat" message from a server, it will reply with
 a "getinfo" and register this server for a couple of seconds. If it hasn't sent
 back an "infoResponse" containing a valid challenge string by this time,
 dpmaster forgets it. Further "heartbeat" messages can't prolongate this time,
-and during that period of time, the server IP address won't be transmitted to
-any client.
+and the server IP address won't be transmitted to any client during that period
+of time.
 
-When dpmaster receives a valid infoResponse from a server, it associates a
-timeout value to it (15 min at this time). Only another valid "infoResponse"
-from this very server will be able to refresh this timeout value. Its IP
-address will be transmitted to the appropriate clients, until it timeouts.
-Then, dpmaster forgets it.
+When dpmaster receives a valid infoResponse from a server, it associates a new
+timeout value to it (15 min). Only another valid "infoResponse" from this very
+server will be able to refresh this timeout value. Its IP address will be
+transmitted to the appropriate clients, until it timeouts. Then, dpmaster
+forgets it.
 
 You may have noticed that this behaviour doesn't take into account the fact
 that some servers send 2 "heartbeat" messages when closing. I deliberately
@@ -181,4 +181,4 @@ making it free from any major abuse.
 
 --
 Mathieu Olivier
-molivier (A) users.sourceforge.net
+molivier, at users.sourceforge.net

@@ -34,9 +34,9 @@
 #ifdef WIN32
 # include <winsock2.h>
 #else
+# include <netinet/in.h>
 # include <arpa/inet.h>
 # include <netdb.h>
-# include <netinet/in.h>
 # include <sys/socket.h>
 #endif
 

@@ -124,12 +124,13 @@ loopback address.
 
 * CHANGES:
 
-    - version 1.5cvs:
+    - version 1.5:
         Address mapping added (see ADDRESS MAPPING above)
         Servers on a loopback address are accepted again if they have a mapping
         A valid "infoReponse" is now rejected if its challenge has timed out
         The size of the challenge sent with "getinfo" has been made random
         A timed-out server is now removed as soon as a new server needs a slot
+        Several little changes in the printings to make them more informative
         A technical documentation was added
         Compiling dpmaster with MSVC works again
 
@@ -183,4 +184,4 @@ http://www.hendriklipka.de/java/q3master.html
 
 --
 Mathieu Olivier
-molivier (A) users.sourceforge.net
+molivier, at users.sourceforge.net

@@ -214,8 +214,6 @@ static void HandleGetServers (const qbyte* msg, const struct sockaddr_in* addr)
 	qboolean no_empty;
 	qboolean no_full;
 
-	MsgPrint (MSG_NORMAL, "> %s ---> getservers\n", peer_address);
-
 	// Check if there's a name before the protocol number
 	// In this case, the message comes from a DarkPlaces-compatible client
 	protocol = atoi (msg);
@@ -239,10 +237,11 @@ static void HandleGetServers (const qbyte* msg, const struct sockaddr_in* addr)
 		gamename[sizeof (gamename) - 1] = '\0';
 	}
 
+	MsgPrint (MSG_NORMAL, "> %s ---> getservers (%s)\n", peer_address,
+			  gamename);
+
 	no_empty = (strstr (msg, "empty") == NULL);
 	no_full = (strstr (msg, "full") == NULL);
-
-	MsgPrint (MSG_DEBUG, "> %s <--- getserversResponse\n", peer_address);
 
 	// Add every relevant server
 	packetind = strlen (packet);
@@ -346,6 +345,8 @@ static void HandleGetServers (const qbyte* msg, const struct sockaddr_in* addr)
 	// Send the packet to the client
 	sendto (sock, packet, packetind, 0, (const struct sockaddr*)addr,
 			sizeof (*addr));
+
+	MsgPrint (MSG_DEBUG, "> %s <--- getserversResponse\n", peer_address);
 }
 
 
@@ -405,7 +406,16 @@ static void HandleInfoResponse (server_t* server, const qbyte* msg)
 	// Q3A doesn't send a gamename, so we add it manually
 	if (value == NULL)
 		value = GAMENAME_Q3A;
-	strncpy (server->gamename, value, sizeof (server->gamename) - 1);
+
+	// If the gamename has changed
+	if (strcmp (server->gamename, value))
+	{
+		MsgPrint (MSG_NORMAL,
+				  "> Server %s updated its gamename: \"%s\" -> \"%s\"\n",
+				  peer_address, server->gamename, value);
+
+		strncpy (server->gamename, value, sizeof (server->gamename) - 1);
+	}
 
 	// Set a new timeout
 	server->timeout = crt_time + TIMEOUT_INFORESPONSE;
