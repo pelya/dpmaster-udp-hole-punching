@@ -1,22 +1,22 @@
 
-Dpmaster, a master server for DarkPlaces, Quake III Arena and QFusion
----------------------------------------------------------------------
-                         Technical information
-                         ---------------------
+     Dpmaster, a master server for DarkPlaces, Quake III Arena and QFusion
+     ---------------------------------------------------------------------
+                             Technical information
+                             ---------------------
 
 
 * COMPILING DPMASTER:
 
 Dpmaster is being developed on PC hardware, on Linux and Windows, using GCC and
-MS Visual C++ 6 respectively. If you use one of these compiler, you should be
+MS Visual C++ 6 respectively. If you use one of these compilers, you should be
 able to compile dpmaster without any problem.
 Dpmaster is also regularly compiled on BSD systems, and on Win32 systems using
 MinGW32 (GCC for Win32). Occasionally, dpmaster may not compile on these
 configurations, but if you're a C developer you should be able to solve the
 problem(s) easily.
 
-Although great care has been taken to potential issues regarding endianess and
-CPU word size, dpmaster has never be compiled or run on non-PC hardware. Please
+Although great care has been taken to avoid issues regarding CPU endianess and
+word size, dpmaster has rarely been compiled and run on non-PC hardware. Please
 report us any (un)successful attempt on such a system.
 
 To compile dpmaster using GCC on a UNIX system, just type "make". To clean the
@@ -32,7 +32,7 @@ file in the "Release" subdirectory.
 
 * PROTOCOL:
 
-Dpmaster uses a protocol that is heavily inspired from Quake III Arena master
+Dpmaster uses a protocol that is heavily inspired by Quake III Arena's master
 server protocol. The reference document for this protocol can be found on id
 Software anonymous FTP site:
     ftp://ftp.idsoftware.com/idstuff/quake3/docs/server.txt
@@ -45,6 +45,12 @@ authenticate and register to a master server. The 2 remaining types are used by
 clients to get a list of servers from a master server. All messages start with
 4 bytes set to 0xFF (character 255), then the command type in plain text.
 
+The 2 types of messages which are likely to cause compliance problems with Q3A-
+compatible tools are: "heartbeat" (requires a different protocol string) and
+"getservers" (requires a game name before the protocol number). Also, note that
+the "infoResponse" messages may be considered invalid by programs which require
+precisely the key names used by Q3A in the infostring.
+
     1) heartbeat: 
 
         - description:
@@ -53,7 +59,7 @@ clients to get a list of servers from a master server. All messages start with
             master. A server should send an heartbeat each time its state
             changes (new map, new player, shutdown, ...), plus it should make
             sure the master gets at least one heartbeat from it every 5-10
-            minutes, so the master doesn't remove it from the list of active
+            minutes, so the master doesn't remove it from its list of active
             servers.
 
         - samples:
@@ -64,8 +70,8 @@ clients to get a list of servers from a master server. All messages start with
         - syntax:
 
             A protocol string is required after the type name. A line feed
-            (character 10, '\n') close the message. Please use "DarkPlaces" as
-            the protocol string. Dpmaster only checks this string for debugging
+            (character 10, '\n') closes the message. Please use "DarkPlaces" as
+            your protocol string. Dpmaster only checks this string for debugging
             purpose at this time, but it may change. You're warned.
 
     2) getinfo:
@@ -73,7 +79,7 @@ clients to get a list of servers from a master server. All messages start with
         - description:
 
             This message is sent by a master to a server, usually in response
-            to a "hearbeat" by this very server. It's used by the master to
+            to an "hearbeat" by this very server. It's used by the master to
             trigger the sending of an "infoResponse" from the server. The
             challenge string is necessary to authenticate the server's
             corresponding "infoResponse".
@@ -167,7 +173,7 @@ dpmaster forgets it. Further "heartbeat" messages can't prolongate this time,
 and the server IP address won't be transmitted to any client during that period
 of time.
 
-When dpmaster receives a valid infoResponse from a server, it associates a new
+When dpmaster receives a valid "infoResponse" from a server, it associates a new
 timeout value to it (15 min). Only another valid "infoResponse" from this very
 server will be able to refresh this timeout value. Its IP address will be
 transmitted to the appropriate clients, until it timeouts. Then, dpmaster

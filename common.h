@@ -3,7 +3,7 @@
 
 	Common header file for dpmaster
 
-	Copyright (C) 2004  Mathieu Olivier
+	Copyright (C) 2004-2005  Mathieu Olivier
 
 	This program is free software; you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -72,9 +72,6 @@ extern msg_level_t max_msg_level;
 
 // Peer address. We rebuild it every time we receive a new packet
 extern char peer_address [128];
-
-
-// ---------- variables ---------- //
 
 
 // ---------- Public functions ---------- //

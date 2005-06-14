@@ -3,7 +3,7 @@
 
 	A master server for DarkPlaces, Quake 3 Arena and QFusion
 
-	Copyright (C) 2002-2004  Mathieu Olivier
+	Copyright (C) 2002-2005  Mathieu Olivier
 
 	This program is free software; you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -36,7 +36,7 @@
 // ---------- Constants ---------- //
 
 // Version of dpmaster
-#define VERSION "1.5.1"
+#define VERSION "1.5.2cvs"
 
 // Default master port
 #define DEFAULT_MASTER_PORT 27950

@@ -1,8 +1,8 @@
 
-Dpmaster, a master server for DarkPlaces, Quake III Arena and QFusion
----------------------------------------------------------------------
-                         General information
-                         -------------------
+     Dpmaster, a master server for DarkPlaces, Quake III Arena and QFusion
+     ---------------------------------------------------------------------
+                              General information
+                              -------------------
 
 
 * INTRODUCTION:
@@ -123,6 +123,11 @@ loopback address.
 
 
 * CHANGES:
+
+    - version 1.5.2cvs:
+        The maximum number of servers recorded by default has doubled (now 256)
+        The default hash size has been increased from 5 bits to 6 bits
+        Several updates and corrections in the documentation
 
     - version 1.5.1:
         Compilation on FreeBSD was fixed
