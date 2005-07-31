@@ -38,6 +38,9 @@
 // Gamename used for Q3A
 #define GAMENAME_Q3A "Quake3Arena"
 
+// Maximum size of a reponse packet
+#define MAX_PACKET_SIZE 1400
+
 
 // Types of messages (with samples):
 
@@ -204,8 +207,10 @@ Parse getservers requests and send the appropriate response
 */
 static void HandleGetServers (const qbyte* msg, const struct sockaddr_in* addr)
 {
+	const char* packetheader = "\xFF\xFF\xFF\xFF" M2C_GETSERVERSREPONSE "\\";
+	const size_t headersize = strlen (packetheader);
 	qbyte gamename [GAMENAME_LENGTH] = "";
-	qbyte packet [2048] = "\xFF\xFF\xFF\xFF" M2C_GETSERVERSREPONSE "\\";
+	qbyte packet [MAX_PACKET_SIZE];
 	size_t packetind;
 	server_t* sv;
 	unsigned int protocol;
@@ -243,13 +248,39 @@ static void HandleGetServers (const qbyte* msg, const struct sockaddr_in* addr)
 	no_empty = (strstr (msg, "empty") == NULL);
 	no_full = (strstr (msg, "full") == NULL);
 
+	// Initialize the packet contents with the header
+	packetind = headersize;
+	memcpy(packet, packetheader, headersize);
+
 	// Add every relevant server
-	packetind = strlen (packet);
-	for (sv = Sv_GetFirst (); sv != NULL; sv = Sv_GetNext ())
+	for (sv = Sv_GetFirst (); /* see below */;  sv = Sv_GetNext ())
 	{
-		// Make sure we won't overflow the buffer
-		if (packetind > sizeof (packet) - (7 + 6))
-			break;
+		// If we're done, or if the packet is full, send the packet
+		if (sv == NULL || packetind > sizeof (packet) - (7 + 6))
+		{
+			// End Of Transmission
+			packet[packetind    ] = 'E';
+			packet[packetind + 1] = 'O';
+			packet[packetind + 2] = 'T';
+			packet[packetind + 3] = '\0';
+			packet[packetind + 4] = '\0';
+			packet[packetind + 5] = '\0';
+			packetind += 6;
+
+			// Send the packet to the client
+			sendto (sock, packet, packetind, 0, (const struct sockaddr*)addr,
+					sizeof (*addr));
+
+			MsgPrint (MSG_DEBUG, "> %s <--- getserversResponse (%u servers)\n",
+						peer_address, (packetind - headersize - 1) / 7 - 1);
+
+			// If we're done
+			if (sv == NULL)
+				return;
+			
+			// Reset the packet index (no need to change the header)
+			packetind = headersize;
+		}
 
 		sv_addr = ntohl (sv->address.sin_addr.s_addr);
 		sv_port = ntohs (sv->address.sin_port);
@@ -328,25 +359,6 @@ static void HandleGetServers (const qbyte* msg, const struct sockaddr_in* addr)
 
 		packetind += 7;
 	}
-
-	// End Of Transmission
-	packet[packetind    ] = 'E';
-	packet[packetind + 1] = 'O';
-	packet[packetind + 2] = 'T';
-	packet[packetind + 3] = '\0';
-	packet[packetind + 4] = '\0';
-	packet[packetind + 5] = '\0';
-	packetind += 6;
-
-	// Print a few more informations
-	MsgPrint (MSG_DEBUG, "  - %u server addresses packed in %u bytes\n",
-			  (packetind - 22) / 7 - 1, packetind);
-
-	// Send the packet to the client
-	sendto (sock, packet, packetind, 0, (const struct sockaddr*)addr,
-			sizeof (*addr));
-
-	MsgPrint (MSG_DEBUG, "> %s <--- getserversResponse\n", peer_address);
 }
 
 
