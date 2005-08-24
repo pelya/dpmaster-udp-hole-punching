@@ -124,7 +124,7 @@ loopback address.
 
 * CHANGES:
 
-    - version 1.6cvs:
+    - version 1.6:
         Several getserversResponse may now be sent for a single getservers
         A getserversResponse packet can no longer exceed 1400 bytes
         The maximum number of servers recorded by default has doubled (now 256)
