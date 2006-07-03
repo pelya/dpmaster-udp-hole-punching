@@ -1,6 +1,8 @@
 
-     Dpmaster, a master server for DarkPlaces, Quake III Arena and QFusion
-     ---------------------------------------------------------------------
+           Dpmaster, a master server for DarkPlaces, Quake III Arena
+         and any game supporting the DarkPlaces master server protocol
+           ---------------------------------------------------------
+
                              Technical information
                              ---------------------
 
@@ -64,15 +66,17 @@ precisely the key names used by Q3A in the infostring.
 
         - samples:
 
-            "\xFF\xFF\xFF\xFFheartbeat QuakeArena-1\x0A" (Q3A)
-            "\xFF\xFF\xFF\xFFheartbeat DarkPlaces\x0A"   (DP)
+            "\xFF\xFF\xFF\xFFheartbeat QuakeArena-1\x0A" (Q3A protocol)
+            "\xFF\xFF\xFF\xFFheartbeat DarkPlaces\x0A"   (DP protocol)
 
         - syntax:
 
-            A protocol string is required after the type name. A line feed
-            (character 10, '\n') closes the message. Please use "DarkPlaces" as
-            your protocol string. Dpmaster only checks this string for debugging
-            purpose at this time, but it may change. You're warned.
+            A protocol string is required after the type name, and a line feed
+            (character 10, '\n') closes the message. Note that the string after
+            the type name is a PROTOCOL STRING, not a game string! Please make
+            sure you use "DarkPlaces" as your protocol string. Dpmaster only
+            checks this string for debugging purpose for the moment, but it's
+            likely to change in the future. You're warned.
 
     2) getinfo:
 

@@ -1,9 +1,10 @@
 /*
 	dpmaster.c
 
-	A master server for DarkPlaces, Quake 3 Arena and QFusion
+	A master server for DarkPlaces, Quake 3 Arena
+	and any game supporting the DarkPlaces master server protocol
 
-	Copyright (C) 2002-2005  Mathieu Olivier
+	Copyright (C) 2002-2006  Mathieu Olivier
 
 	This program is free software; you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -36,7 +37,7 @@
 // ---------- Constants ---------- //
 
 // Version of dpmaster
-#define VERSION "1.6"
+#define VERSION "1.6.1-devel"
 
 // Default master port
 #define DEFAULT_MASTER_PORT 27950
@@ -524,7 +525,8 @@ int main (int argc, const char* argv [])
 
 	MsgPrint (MSG_NORMAL,
 			  "\n"
-			  "dpmaster, a master server for DarkPlaces, Quake III Arena and QFusion\n"
+			  "dpmaster, a master server for DarkPlaces, Quake III Arena,\n"
+			  "and any game supporting the DarkPlaces master server protocol\n"
 			  "(version " VERSION ", compiled the " __DATE__ " at " __TIME__ ")\n"
 			  "\n");
 

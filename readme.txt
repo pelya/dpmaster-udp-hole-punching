@@ -1,6 +1,8 @@
 
-     Dpmaster, a master server for DarkPlaces, Quake III Arena and QFusion
-     ---------------------------------------------------------------------
+           Dpmaster, a master server for DarkPlaces, Quake III Arena
+         and any game supporting the DarkPlaces master server protocol
+           ---------------------------------------------------------
+
                               General information
                               -------------------
 
@@ -10,9 +12,19 @@
 Dpmaster is a master server written from scratch for LordHavoc's great Quake 1
 engine: DarkPlaces. The master protocol used by DarkPlaces and dpmaster is
 heavily based on the Quake III Arena master server protocol, that's why
-dpmaster supports DP servers and Q3A servers at the same time. Also, DP master
-protocol was chosen as the QFusion master protocol, and so this game is
-supported too.
+dpmaster supports DP servers and Q3A servers at the same time.
+
+An interesting property of dpmaster and its associated network protocol is that
+it supports any game using its protocol out of the box. As long as you send
+your game name correctly in the "infoResponse" and "getservers" messages (take
+a look at the technical information file for further explanations), any running
+dpmaster will accept and register your game. Of course, it doesn't exempt you
+from asking someone the permission to use his running instance of dpmaster. You
+don't want to be rude and get banned from his dpmaster, do you?
+
+Game engines supporting the DP master server protocol currently include
+DarkPlaces and all its derived games (Nexuiz, Transfusion, ...), QFusion and
+most of its derived games (Warsow, ...), and FTE QuakeWorld.
 
 Although dpmaster is being developed primarily on a Linux machine (i386), it
 should compile and run at least on any operating system from the Win32 or UNIX
@@ -123,6 +135,9 @@ loopback address.
 
 
 * CHANGES:
+
+    - version 1.6.1-devel:
+        Made it clearer that dpmaster can support any game out of the box
 
     - version 1.6:
         Several getserversResponse may now be sent for a single getservers
