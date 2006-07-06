@@ -460,7 +460,7 @@ static qboolean SecureInit (void)
 
 	// Init the time and the random seed
 	crt_time = time (NULL);
-	srand (crt_time);
+	srand ((unsigned int)crt_time);
 
 	// Initialize the server list and hash table
 	if (!Sv_Init ())

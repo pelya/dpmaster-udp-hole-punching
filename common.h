@@ -79,6 +79,7 @@ extern char peer_address [128];
 // Win32 uses a different name for some standard functions
 #ifdef WIN32
 # define snprintf _snprintf
+# define strdup _strdup
 #endif
 
 // Print a message to screen, depending on its verbose level

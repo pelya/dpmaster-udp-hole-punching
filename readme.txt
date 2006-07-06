@@ -137,6 +137,7 @@ loopback address.
 * CHANGES:
 
     - version 1.6.1-devel:
+        Compilation with MS Visual Studio 2005 was fixed
         Made it clearer that dpmaster can support any game out of the box
 
     - version 1.6:
