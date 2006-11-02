@@ -3,7 +3,7 @@
 
 	Message management for dpmaster
 
-	Copyright (C) 2004  Mathieu Olivier
+	Copyright (C) 2004-2006  Mathieu Olivier
 
 	This program is free software; you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -179,16 +179,21 @@ Send a "getinfo" message to a server
 */
 static void SendGetInfo (server_t* server)
 {
-	qbyte msg [64] = "\xFF\xFF\xFF\xFF" M2S_GETINFO " ";
+	char msg [64] = "\xFF\xFF\xFF\xFF" M2S_GETINFO " ";
+	size_t msglen;
 
 	if (!server->challenge_timeout || server->challenge_timeout < crt_time)
 	{
-		strncpy (server->challenge, BuildChallenge (),
-				 sizeof (server->challenge) - 1);
+		const char* challenge;
+
+		challenge = BuildChallenge ();
+		strncpy (server->challenge, challenge, sizeof (server->challenge) - 1);
 		server->challenge_timeout = crt_time + TIMEOUT_CHALLENGE;
 	}
 
-	strncat (msg, server->challenge, sizeof (msg) - strlen (msg) - 1);
+	msglen = strlen (msg);
+	strncpy (msg + msglen, server->challenge, sizeof (msg) - msglen - 1);
+	msg[sizeof (msg) - 1] = '\0';
 	sendto (sock, msg, strlen (msg), 0,
 			(const struct sockaddr*)&server->address,
 			sizeof (server->address));
@@ -205,11 +210,11 @@ HandleGetServers
 Parse getservers requests and send the appropriate response
 ====================
 */
-static void HandleGetServers (const qbyte* msg, const struct sockaddr_in* addr)
+static void HandleGetServers (const char* msg, const struct sockaddr_in* addr)
 {
 	const char* packetheader = "\xFF\xFF\xFF\xFF" M2C_GETSERVERSREPONSE "\\";
 	const size_t headersize = strlen (packetheader);
-	qbyte gamename [GAMENAME_LENGTH] = "";
+	char gamename [GAMENAME_LENGTH] = "";
 	qbyte packet [MAX_PACKET_SIZE];
 	size_t packetind;
 	server_t* sv;
@@ -369,7 +374,7 @@ HandleInfoResponse
 Parse infoResponse messages
 ====================
 */
-static void HandleInfoResponse (server_t* server, const qbyte* msg)
+static void HandleInfoResponse (server_t* server, const char* msg)
 {
 	char* value;
 	unsigned int new_protocol = 0, new_maxclients = 0;
@@ -443,7 +448,7 @@ HandleMessage
 Parse a packet to figure out what to do with it
 ====================
 */
-void HandleMessage (const qbyte* msg, size_t length,
+void HandleMessage (const char* msg, size_t length,
 					const struct sockaddr_in* address)
 {
 	server_t* server;

@@ -3,7 +3,7 @@
 
 	Server list and address mapping management for dpmaster
 
-	Copyright (C) 2004-2005  Mathieu Olivier
+	Copyright (C) 2004-2006  Mathieu Olivier
 
 	This program is free software; you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -28,10 +28,10 @@
 // ---------- Constants ---------- //
 
 // Maximum number of servers in all lists by default
-#define DEFAULT_MAX_NB_SERVERS 256
+#define DEFAULT_MAX_NB_SERVERS 1024
 
 // Address hash size in bits (between 0 and MAX_HASH_SIZE)
-#define DEFAULT_HASH_SIZE	6
+#define DEFAULT_HASH_SIZE	8
 #define MAX_HASH_SIZE		8
 
 // Number of characters in a challenge, including the '\0'
@@ -60,12 +60,12 @@ typedef struct server_s
 	struct server_s* next;
 	struct sockaddr_in address;
 	unsigned int protocol;
-	qbyte challenge [CHALLENGE_MAX_LENGTH];
+	char challenge [CHALLENGE_MAX_LENGTH];
 	unsigned short nbclients;
 	unsigned short maxclients;
 	time_t timeout;
 	time_t challenge_timeout;
-	qbyte gamename [GAMENAME_LENGTH];
+	char gamename [GAMENAME_LENGTH];
 	const struct addrmap_s* addrmap;
 	qboolean active;
 } server_t;

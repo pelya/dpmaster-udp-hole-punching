@@ -3,7 +3,7 @@
 
 	Message management for dpmaster
 
-	Copyright (C) 2004  Mathieu Olivier
+	Copyright (C) 2004-2006  Mathieu Olivier
 
 	This program is free software; you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -28,7 +28,7 @@
 // ---------- Public functions ---------- //
 
 // Parse a packet to figure out what to do with it
-void HandleMessage (const qbyte* msg, size_t length,
+void HandleMessage (const char* msg, size_t length,
 					const struct sockaddr_in* address);
 
 

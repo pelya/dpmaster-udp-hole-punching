@@ -137,7 +137,11 @@ loopback address.
 * CHANGES:
 
     - version 1.6.1-devel:
-        Compilation with MS Visual Studio 2005 was fixed
+        The "heartbeat" description in techinfo.txt has been corrected
+        The maximum number of servers recorded by default is now 1024
+        The default hash size has been increased from 6 bits to 8 bits
+        A rare bug where a server was occasionally skipped was fixed
+        The compilation with MS Visual Studio 2005 was fixed
         Made it clearer that dpmaster can support any game out of the box
 
     - version 1.6:

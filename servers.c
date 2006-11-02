@@ -3,7 +3,7 @@
 
 	Server list and address mapping management for dpmaster
 
-	Copyright (C) 2004  Mathieu Olivier
+	Copyright (C) 2004-2006  Mathieu Olivier
 
 	This program is free software; you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -335,8 +335,8 @@ qboolean Sv_SetHashSize (unsigned int size)
 	if (hash_table != NULL)
 		return false;
 
-	// Too big?
-	if (size > MAX_HASH_SIZE)
+	// Too big or too small?
+	if (size > MAX_HASH_SIZE || size <= 0)
 		return false;
 
 	hash_table_size = 1 << size;
@@ -525,16 +525,16 @@ Get the next server in the list
 */
 server_t* Sv_GetNext (void)
 {
-	for (;;)
+	// If there is a current server, follow the link
+	if (crt_server != NULL)
 	{
-		// If there is a current server, follow the link
-		if (crt_server != NULL)
-		{
-			prev_pointer = &crt_server->next;
-			crt_server = crt_server->next;
-		}
+		prev_pointer = &crt_server->next;
+		crt_server = crt_server->next;
+	}
 
-		// If we don't have the next server yet
+	do
+	{
+		// If we are at the end of a list
 		if (crt_server == NULL)
 		{
 			// Search the hash table for the next server
@@ -551,16 +551,16 @@ server_t* Sv_GetNext (void)
 			}
 		}
 
-		// Did we hit the end of the list?
+		// Did we hit the end of the hash table?
 		if (crt_server == NULL)
 			return NULL;
 
-		// If the new current server has timed out, remove it
-		if (crt_server->timeout < crt_time)
+		// Remove timed-out servers from the list
+		while (crt_server != NULL && crt_server->timeout < crt_time)
 			crt_server = Sv_RemoveAndGetNextPtr (crt_server, prev_pointer);
-		else
-			return crt_server;
-	}
+	} while (crt_server == NULL);
+
+	return crt_server;
 }
 
 

@@ -517,7 +517,7 @@ int main (int argc, const char* argv [])
 	struct sockaddr_in address;
 	socklen_t addrlen;
 	int nb_bytes;
-	qbyte packet [MAX_PACKET_SIZE + 1];  // "+ 1" because we append a '\0'
+	char packet [MAX_PACKET_SIZE + 1];  // "+ 1" because we append a '\0'
 	qboolean valid_options;
 
 	// Get the options from the command line
@@ -567,7 +567,7 @@ int main (int argc, const char* argv [])
 		{
 			MsgPrint (MSG_DEBUG, "> New packet received from %s: ",
 					  peer_address);
-			PrintPacket (packet, nb_bytes);
+			PrintPacket ((qbyte*)packet, nb_bytes);
 		}
 
 		// A few sanity checks

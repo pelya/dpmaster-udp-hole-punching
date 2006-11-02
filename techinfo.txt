@@ -58,11 +58,10 @@ precisely the key names used by Q3A in the infostring.
         - description:
 
             The heartbeat is sent by a server when it wants to get noticed by a
-            master. A server should send an heartbeat each time its state
-            changes (new map, new player, shutdown, ...), plus it should make
-            sure the master gets at least one heartbeat from it every 5-10
-            minutes, so the master doesn't remove it from its list of active
-            servers.
+            master. A server should send an heartbeat each time it becomes empty
+            or full, plus it should make sure the master gets at least one
+            heartbeat from it every 5-10 minutes, so the master doesn't remove
+            it from its list of active servers.
 
         - samples:
 
