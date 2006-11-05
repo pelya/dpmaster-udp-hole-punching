@@ -28,9 +28,8 @@
 
 // ---------- Constants ---------- //
 
-// Timeouts (in secondes)
-#define TIMEOUT_HEARTBEAT		2
-#define TIMEOUT_INFORESPONSE	(15 * 60)
+// Timeout after a valid infoResponse (in secondes)
+#define TIMEOUT_INFORESPONSE (15 * 60)
 
 // Period of validity for a challenge string (in secondes)
 #define TIMEOUT_CHALLENGE 2
@@ -214,20 +213,20 @@ static void HandleGetServers (const char* msg, const struct sockaddr_in* addr)
 {
 	const char* packetheader = "\xFF\xFF\xFF\xFF" M2C_GETSERVERSREPONSE "\\";
 	const size_t headersize = strlen (packetheader);
+	char* end_ptr;
+	const char* msg_ptr;
 	char gamename [GAMENAME_LENGTH] = "";
 	qbyte packet [MAX_PACKET_SIZE];
 	size_t packetind;
 	server_t* sv;
-	unsigned int protocol;
-	unsigned int sv_addr;
-	unsigned short sv_port;
+	int protocol;
 	qboolean no_empty;
 	qboolean no_full;
 
 	// Check if there's a name before the protocol number
 	// In this case, the message comes from a DarkPlaces-compatible client
-	protocol = atoi (msg);
-	if (!protocol)
+	protocol = (int)strtol (msg, &end_ptr, 0);
+	if (end_ptr == msg || (*end_ptr != ' ' && *end_ptr != '\0'))
 	{
 		char *space;
 
@@ -236,22 +235,23 @@ static void HandleGetServers (const char* msg, const struct sockaddr_in* addr)
 		space = strchr (gamename, ' ');
 		if (space)
 			*space = '\0';
-		msg += strlen (gamename) + 1;
+		msg_ptr = msg + strlen (gamename) + 1;
 
-		protocol = atoi (msg);
+		protocol = atoi (msg_ptr);
 	}
 	// Else, it comes from a Quake III Arena client
 	else
 	{
 		strncpy (gamename, GAMENAME_Q3A, sizeof (gamename) - 1);
 		gamename[sizeof (gamename) - 1] = '\0';
+		msg_ptr = msg;
 	}
 
 	MsgPrint (MSG_NORMAL, "> %s ---> getservers (%s)\n", peer_address,
 			  gamename);
 
-	no_empty = (strstr (msg, "empty") == NULL);
-	no_full = (strstr (msg, "full") == NULL);
+	no_empty = (strstr (msg_ptr, "empty") == NULL);
+	no_full = (strstr (msg_ptr, "full") == NULL);
 
 	// Initialize the packet contents with the header
 	packetind = headersize;
@@ -260,6 +260,9 @@ static void HandleGetServers (const char* msg, const struct sockaddr_in* addr)
 	// Add every relevant server
 	for (sv = Sv_GetFirst (); /* see below */;  sv = Sv_GetNext ())
 	{
+		unsigned int sv_addr;
+		unsigned short sv_port;
+
 		// If we're done, or if the packet is full, send the packet
 		if (sv == NULL || packetind > sizeof (packet) - (7 + 6))
 		{
@@ -277,7 +280,7 @@ static void HandleGetServers (const char* msg, const struct sockaddr_in* addr)
 					sizeof (*addr));
 
 			MsgPrint (MSG_DEBUG, "> %s <--- getserversResponse (%u servers)\n",
-						peer_address, (packetind - headersize - 1) / 7 - 1);
+						peer_address, (packetind - headersize - 6) / 7);
 
 			// If we're done
 			if (sv == NULL)
@@ -287,6 +290,8 @@ static void HandleGetServers (const char* msg, const struct sockaddr_in* addr)
 			packetind = headersize;
 		}
 
+		assert (sv->state != sv_state_unused_slot);
+
 		sv_addr = ntohl (sv->address.sin_addr.s_addr);
 		sv_port = ntohs (sv->address.sin_port);
 
@@ -294,36 +299,34 @@ static void HandleGetServers (const char* msg, const struct sockaddr_in* addr)
 		if (max_msg_level >= MSG_DEBUG)
 		{
 			MsgPrint (MSG_DEBUG,
-					  "Comparing server: IP:\"%u.%u.%u.%u:%hu\", p:%u, c:%hu, g:\"%s\"\n",
+					  "Comparing server: IP:\"%u.%u.%u.%u:%hu\", p:%d, g:\"%s\"\n",
 					  sv_addr >> 24, (sv_addr >> 16) & 0xFF,
 					  (sv_addr >>  8) & 0xFF, sv_addr & 0xFF,
-					  sv_port, sv->protocol, sv->nbclients, sv->gamename);
+					  sv_port, sv->protocol, sv->gamename);
 
 			if (sv->protocol != protocol)
 				MsgPrint (MSG_DEBUG,
-						  "Reject: protocol %u != requested %u\n",
+						  "Reject: protocol %d != requested %d\n",
 						  sv->protocol, protocol);
-			if (sv->nbclients == 0 && no_empty)
-				MsgPrint (MSG_DEBUG,
-						  "Reject: nbclients is %hu/%hu && no_empty\n",
-						  sv->nbclients, sv->maxclients);
-			if (sv->nbclients == sv->maxclients && no_full)
-				MsgPrint (MSG_DEBUG,
-						  "Reject: nbclients is %hu/%hu && no_full\n",
-						  sv->nbclients, sv->maxclients);
-			if (gamename[0] && strcmp (gamename, sv->gamename))
+			if (sv->state <= sv_state_uninitialized)
+				MsgPrint (MSG_DEBUG, "Reject: server is not initialized\n");
+			if (sv->state == sv_state_empty && no_empty)
+				MsgPrint (MSG_DEBUG, "Reject: server is empty && no_empty\n");
+			if (sv->state == sv_state_full && no_full)
+				MsgPrint (MSG_DEBUG, "Reject: server is full && no_full\n");
+			if (strcmp (gamename, sv->gamename) != 0)
 				MsgPrint (MSG_DEBUG,
 						  "Reject: gamename \"%s\" != requested \"%s\"\n",
 						  sv->gamename, gamename);
 		}
 
 		// Check protocol, options, and gamename
-		if (sv->protocol != protocol ||
-			(sv->nbclients == 0 && no_empty) ||
-			(sv->nbclients == sv->maxclients && no_full) ||
-			(gamename[0] && strcmp (gamename, sv->gamename)))
+		if (sv->state <= sv_state_uninitialized ||
+			sv->protocol != protocol ||
+			(sv->state == sv_state_empty && no_empty) ||
+			(sv->state == sv_state_full && no_full) ||
+			strcmp (gamename, sv->gamename) != 0)
 		{
-
 			// Skip it
 			continue;
 		}
@@ -377,7 +380,9 @@ Parse infoResponse messages
 static void HandleInfoResponse (server_t* server, const char* msg)
 {
 	char* value;
-	unsigned int new_protocol = 0, new_maxclients = 0;
+	int new_protocol;
+	char* end_ptr;
+	unsigned int new_maxclients, new_clients;
 
 	MsgPrint (MSG_DEBUG, "> %s ---> infoResponse\n", peer_address);
 
@@ -397,42 +402,83 @@ static void HandleInfoResponse (server_t* server, const char* msg)
 		return;
 	}
 
-	// Check and save the values of "protocol" and "maxclients"
-	value = SearchInfostring (msg, "protocol");
-	if (value)
-		new_protocol = atoi (value);
-	value = SearchInfostring (msg, "sv_maxclients");
-	if (value)
-		new_maxclients = atoi (value);
-	if (!new_protocol || !new_maxclients)
+	// Check the value of "protocol"
+ 	value = SearchInfostring (msg, "protocol");
+	if (value == NULL)
 	{
 		MsgPrint (MSG_ERROR,
-				  "> ERROR: invalid infoResponse from %s (protocol: %d, maxclients: %d)\n",
-				  peer_address, new_protocol, new_maxclients);
+				  "> ERROR: invalid infoResponse from %s (no protocol value)\n",
+				  peer_address);
 		return;
 	}
-	server->protocol = new_protocol;
-	server->maxclients = new_maxclients;
+	new_protocol = (int)strtol (value, &end_ptr, 0);
+	if (end_ptr == value || *end_ptr != '\0')
+	{
+		MsgPrint (MSG_ERROR,
+				  "> ERROR: invalid infoResponse from %s (invalid protocol value: %s)\n",
+				  peer_address, value);
+		return;
+	}
 
-	// Save some other useful values
+	// Check the value of "maxclients"
+	value = SearchInfostring (msg, "sv_maxclients");
+	new_maxclients = ((value != NULL) ? atoi (value) : 0);
+	if (new_maxclients == 0)
+	{
+		MsgPrint (MSG_ERROR,
+				  "> ERROR: invalid infoResponse from %s (sv_maxclients = %d)\n",
+				  peer_address, new_maxclients);
+		return;
+	}
+
+	// Check the presence of "clients"
 	value = SearchInfostring (msg, "clients");
-	if (value)
-		server->nbclients = atoi (value);
-	value = SearchInfostring (msg, "gamename");
+	if (value == NULL)
+	{
+		MsgPrint (MSG_ERROR,
+				  "> ERROR: invalid infoResponse from %s (no \"clients\" value)\n",
+				  peer_address);
+		return;
+	}
+	new_clients = ((value != NULL) ? atoi (value) : 0);
 
 	// Q3A doesn't send a gamename, so we add it manually
+	value = SearchInfostring (msg, "gamename");
 	if (value == NULL)
 		value = GAMENAME_Q3A;
+	else if (value[0] == '\0')
+	{
+		MsgPrint (MSG_ERROR,
+				  "> ERROR: invalid infoResponse from %s (game name is void)\n",
+				  peer_address);
+		return;
+	}
 
 	// If the gamename has changed
-	if (strcmp (server->gamename, value))
+	if (strcmp (server->gamename, value) != 0)
 	{
-		MsgPrint (MSG_NORMAL,
-				  "> Server %s updated its gamename: \"%s\" -> \"%s\"\n",
-				  peer_address, server->gamename, value);
+		// If the server had already been initialized, warn about it
+		if (server->gamename[0] != '\0')
+		{
+			assert (server->state > sv_state_uninitialized);
+			MsgPrint (MSG_WARNING,
+					  "> Server %s updated its gamename: \"%s\" -> \"%s\"\n",
+					  peer_address, server->gamename, value);
+		}
+		else
+			assert (server->state == sv_state_uninitialized);
 
 		strncpy (server->gamename, value, sizeof (server->gamename) - 1);
 	}
+
+	// Save some useful informations in the server entry
+	server->protocol = new_protocol;
+	if (new_clients == 0)
+		server->state = sv_state_empty;
+	else if (new_clients == new_maxclients)
+		server->state = sv_state_full;
+	else
+		server->state = sv_state_occupied;
 
 	// Set a new timeout
 	server->timeout = crt_time + TIMEOUT_INFORESPONSE;
@@ -468,13 +514,7 @@ void HandleMessage (const char* msg, size_t length,
 		if (server == NULL)
 			return;
 
-		server->active = true;
-
-		// If we haven't yet received any infoResponse from this server,
-		// we let it some more time to contact us. After that, only
-		// infoResponse messages can update the timeout value.
-		if (!server->maxclients)
-			server->timeout = crt_time + TIMEOUT_HEARTBEAT;
+		assert (server->state != sv_state_unused_slot);
 
 		// Ask for some infos
 		SendGetInfo (server);

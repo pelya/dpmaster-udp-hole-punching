@@ -136,7 +136,15 @@ loopback address.
 
 * CHANGES:
 
-    - version 1.6.1-devel:
+    - version 1.7-devel:
+        New option to limit the number of servers per address (-N)
+        Protocol numbers less than or equal to 0 are now handled correctly
+        Servers can no longer keep their slots without sending infoResponses
+        Games having a name starting with a number are now handled correctly
+        A few minor memory leaks were removed in the address mapping init code
+        Additional checks of the command line options and the messages syntax
+        The requirement of a "clients" value in infoResponses is now enforced
+        The "infoResponse" description in techinfo.txt has been corrected
         The "heartbeat" description in techinfo.txt has been corrected
         The maximum number of servers recorded by default is now 1024
         The default hash size has been increased from 6 bits to 8 bits

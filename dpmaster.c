@@ -37,7 +37,7 @@
 // ---------- Constants ---------- //
 
 // Version of dpmaster
-#define VERSION "1.6.1-devel"
+#define VERSION "1.7-devel"
 
 // Default master port
 #define DEFAULT_MASTER_PORT 27950
@@ -272,6 +272,8 @@ static qboolean ParseCommandLine (int argc, const char* argv [])
 	int ind = 1;
 	unsigned int vlevel = max_msg_level;
 	qboolean valid_options = true;
+	const char* start_ptr;
+	char* end_ptr;
 
 	while (ind < argc && valid_options)
 	{
@@ -297,7 +299,16 @@ static qboolean ParseCommandLine (int argc, const char* argv [])
 			case 'H':
 				ind++;
 				if (ind < argc)
-					valid_options = Sv_SetHashSize (atoi (argv[ind]));
+				{
+					unsigned int hash_size;
+					
+					start_ptr = argv[ind];
+					hash_size = (unsigned int)strtol (start_ptr, &end_ptr, 0);
+					if (end_ptr == start_ptr || *end_ptr != '\0')
+						valid_options = false;
+					else
+						valid_options = Sv_SetHashSize (hash_size);
+				}
 				else
 					valid_options = false;
 				break;
@@ -335,7 +346,34 @@ static qboolean ParseCommandLine (int argc, const char* argv [])
 			case 'n':
 				ind++;
 				if (ind < argc)
-					valid_options = Sv_SetMaxNbServers (atoi (argv[ind]));
+				{
+					unsigned int max_nb_servers;
+					
+					start_ptr = argv[ind];
+					max_nb_servers = (unsigned int)strtol (start_ptr, &end_ptr, 0);
+					if (end_ptr == start_ptr || *end_ptr != '\0')
+						valid_options = false;
+					else
+						valid_options = Sv_SetMaxNbServers (max_nb_servers);
+				}
+				else
+					valid_options = false;
+				break;
+
+			// Maximum number of servers per address
+			case 'N':
+				ind++;
+				if (ind < argc)
+				{
+					unsigned int max_per_address;
+					
+					start_ptr = argv[ind];
+					max_per_address = (unsigned int)strtol (start_ptr, &end_ptr, 0);
+					if (end_ptr == start_ptr || *end_ptr != '\0')
+						valid_options = false;
+					else
+						valid_options = Sv_SetMaxNbServersPerAddress (max_per_address);
+				}
 				else
 					valid_options = false;
 				break;
@@ -343,14 +381,20 @@ static qboolean ParseCommandLine (int argc, const char* argv [])
 			// Port number
 			case 'p':
 			{
-				unsigned short port_num = 0;
 				ind++;
 				if (ind < argc)
-					port_num = atoi (argv[ind]);
-				if (!port_num)
-					valid_options = false;
+				{
+					unsigned short port_num;
+
+					start_ptr = argv[ind];
+					port_num = (unsigned short)strtol (start_ptr, &end_ptr, 0);
+					if (end_ptr == start_ptr || *end_ptr != '\0' || port_num == 0)
+						valid_options = false;
+					else
+						master_port = port_num;
+				}
 				else
-					master_port = port_num;
+					valid_options = false;
 				break;
 			}
 
@@ -371,8 +415,10 @@ static qboolean ParseCommandLine (int argc, const char* argv [])
 				if (ind + 1 < argc && argv[ind + 1][0] != '-')
 				{
 					ind++;
-					vlevel = atoi (argv[ind]);
-					if (vlevel > MSG_DEBUG)
+					start_ptr = argv[ind];
+					vlevel = (unsigned int)strtol (start_ptr, &end_ptr, 0);
+					if (end_ptr == start_ptr || *end_ptr != '\0' ||
+						vlevel > MSG_DEBUG)
 						valid_options = false;
 				}
 				else
@@ -415,30 +461,33 @@ static void PrintHelp (void)
 			  "Syntax: dpmaster [options]\n"
 			  "Available options are:\n"
 #ifndef WIN32
-			  "  -D               : run as a daemon\n"
+			  "  -D                : run as a daemon\n"
 #endif
-			  "  -h               : this help\n"
-			  "  -H <hash_size>   : hash size in bits, up to %u (default: %u)\n"
+			  "  -h                : this help\n"
+			  "  -H <hash_size>    : hash size in bits, up to %u (default: %u)\n"
 #ifndef WIN32
-			  "  -j <jail_path>   : use <jail_path> as chroot path (default: %s)\n"
-			  "                     only available when running with super-user privileges\n"
+			  "  -j <jail_path>    : use <jail_path> as chroot path (default: %s)\n"
+			  "                      only available when running with super-user privileges\n"
 #endif
-			  "  -l <address>     : listen on local address <address>\n"
-			  "  -m <a1>=<a2>     : map address <a1> to <a2> when sending it to clients\n"
-			  "                     addresses can contain a port number (ex: myaddr.net:1234)\n"
-			  "  -n <max_servers> : maximum number of servers recorded (default: %u)\n"
-			  "  -p <port_num>    : use port <port_num> (default: %u)\n"
+			  "  -l <address>      : listen on local address <address>\n"
+			  "  -m <a1>=<a2>      : map address <a1> to <a2> when sending it to clients\n"
+			  "                      addresses can contain a port number (ex: myaddr.net:1234)\n"
+			  "  -n <max_servers>  : maximum number of servers recorded (default: %u)\n"
+			  "  -N <max_per_addr> : maximum number of servers per address (default: %u)\n"
+			  "                      0 means there's no limit\n"
+			  "  -p <port_num>     : use port <port_num> (default: %u)\n"
 #ifndef WIN32
-			  "  -u <user>        : use <user> privileges (default: %s)\n"
-			  "                     only available when running with super-user privileges\n"
+			  "  -u <user>         : use <user> privileges (default: %s)\n"
+			  "                      only available when running with super-user privileges\n"
 #endif
-			  "  -v [verbose_lvl] : verbose level, up to %u (default: %u; no value means max)\n"
+			  "  -v [verbose_lvl]  : verbose level, up to %u (default: %u; no value means max)\n"
 			  "\n",
 			  MAX_HASH_SIZE, DEFAULT_HASH_SIZE,
 #ifndef WIN32
 			  DEFAULT_JAIL_PATH,
 #endif
 			  DEFAULT_MAX_NB_SERVERS,
+			  DEFAULT_MAX_NB_SERVERS_PER_ADDRESS,
 			  DEFAULT_MASTER_PORT,
 #ifndef WIN32
 			  DEFAULT_LOW_PRIV_USER,
@@ -561,12 +610,14 @@ int main (int argc, const char* argv [])
 			snprintf (peer_address, sizeof (peer_address), "%s:%hu",
 					  inet_ntoa (address.sin_addr), ntohs (address.sin_port));
 
+		// Update the current time
+		crt_time = time (NULL);
+
 		// We print the packet contents if necessary
-		// TODO: print the current time here
 		if (max_msg_level >= MSG_DEBUG)
 		{
-			MsgPrint (MSG_DEBUG, "> New packet received from %s: ",
-					  peer_address);
+			MsgPrint (MSG_DEBUG, "> New packet received from %s at time %lu: ",
+					  peer_address, crt_time);
 			PrintPacket ((qbyte*)packet, nb_bytes);
 		}
 
@@ -593,9 +644,8 @@ int main (int argc, const char* argv [])
 			continue;
 		}
 
-		// Append a '\0' to make the parsing easier and update the current time
+		// Append a '\0' to make the parsing easier
 		packet[nb_bytes] = '\0';
-		crt_time = time (NULL);
 
 		// Call HandleMessage with the remaining contents
 		HandleMessage (packet + 4, nb_bytes - 4, &address);

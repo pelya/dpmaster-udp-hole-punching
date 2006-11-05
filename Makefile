@@ -13,25 +13,36 @@ UNIX_RM=rm -f
 ##### Common variables #####
 
 CC=gcc
-CFLAGS=-Wall -O2
+CFLAGS_COMMON=-Wall
+CFLAGS_DEBUG=$(CFLAGS_COMMON) -g
+CFLAGS_RELEASE=$(CFLAGS_COMMON) -O2 -DNDEBUG
 OBJECTS=dpmaster.o messages.o servers.o
 
 ##### Commands #####
 
-.PHONY: all mingw clean win32clean
+.PHONY: all release debug mingw mingw-debug clean win32clean
 
-all:
-	$(MAKE) EXE=$(UNIX_EXE) LDFLAGS="$(UNIX_LDFLAGS)" $(UNIX_EXE) 
+all: release
+
+release:
+	$(MAKE) EXE=$(UNIX_EXE) LDFLAGS="$(UNIX_LDFLAGS)" CFLAGS="$(CFLAGS_RELEASE)" $(UNIX_EXE) 
+	strip $(UNIX_EXE)
+
+debug:
+	$(MAKE) EXE=$(UNIX_EXE) LDFLAGS="$(UNIX_LDFLAGS)" CFLAGS="$(CFLAGS_DEBUG)" $(UNIX_EXE) 
 
 mingw:
-	@$(MAKE) EXE=$(WIN32_EXE) LDFLAGS="$(WIN32_LDFLAGS)" $(WIN32_EXE)
+	$(MAKE) EXE=$(WIN32_EXE) LDFLAGS="$(WIN32_LDFLAGS)" CFLAGS="$(CFLAGS_RELEASE)" $(WIN32_EXE)
+	strip $(WIN32_EXE)
+
+mingw-debug:
+	$(MAKE) EXE=$(WIN32_EXE) LDFLAGS="$(WIN32_LDFLAGS)" CFLAGS="$(CFLAGS_DEBUG)" $(WIN32_EXE)
 
 .c.o:
 	$(CC) $(CFLAGS) -c $*.c
 
 $(EXE): $(OBJECTS)
 	$(CC) -o $@ $(OBJECTS) $(LDFLAGS)
-	strip $@
 
 clean:
 	-$(UNIX_RM) $(WIN32_EXE)

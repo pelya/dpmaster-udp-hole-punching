@@ -27,6 +27,9 @@
 
 // ---------- Constants ---------- //
 
+// Timeout for a newly added server (in secondes)
+#define TIMEOUT_HEARTBEAT	2
+
 // Address hash bitmask
 #define HASH_BITMASK (hash_table_size - 1)
 
@@ -35,21 +38,21 @@
 
 // All server structures are allocated in one block in the "servers" array.
 // Each used slot is also part of a linked list in "hash_table". A simple
-// hash of the address and port of a server gives its index in the table.
+// hash of the address of a server gives its index in the table.
 static server_t* servers = NULL;
-static size_t max_nb_servers = DEFAULT_MAX_NB_SERVERS;
-static size_t nb_servers = 0;
+static unsigned int max_nb_servers = DEFAULT_MAX_NB_SERVERS;
+static unsigned int nb_servers = 0;
 static server_t** hash_table = NULL;
 static size_t hash_table_size = (1 << DEFAULT_HASH_SIZE);
 
-// Last allocated entry in the "servers" array.
-// Used as a start index for finding a free slot in "servers" more quickly
-static unsigned int last_alloc;
+static unsigned int max_per_address = DEFAULT_MAX_NB_SERVERS_PER_ADDRESS;
 
-// Variables for Sv_GetFirst, Sv_GetNext and Sv_RemoveCurrentAndGetNext
-static server_t* crt_server = NULL;
-static server_t** prev_pointer = NULL;
-static int crt_hash_ind = -1;
+// Used to speed up the server allocation / deallocation process
+static int last_used_slot = -1;  // -1 = no used slot
+static int first_free_slot = 0;  // -1 = no more room
+
+// Variables for Sv_GetFirst, Sv_GetNext and Sv_Remove
+static int crt_server_ind = -1;
 
 // List of address mappings. They are sorted by "from" field (IP, then port)
 static addrmap_t* addrmaps = NULL;
@@ -66,35 +69,176 @@ Compute the hash of a server address
 */
 static unsigned int Sv_AddressHash (const struct sockaddr_in* address)
 {
-	qbyte* addr = (qbyte*)&address->sin_addr.s_addr;
-	qbyte* port = (qbyte*)&address->sin_port;
+	qbyte* addr;
 	qbyte hash;
 
-	hash = addr[0] ^ addr[1] ^ addr[2] ^ addr[3] ^ port[0] ^ port[1];
+	addr = (qbyte*)&address->sin_addr.s_addr;
+	hash = addr[0] ^ addr[1] ^ addr[2] ^ addr[3];
 	return hash & HASH_BITMASK;
 }
 
 
 /*
 ====================
-Sv_RemoveAndGetNextPtr
+Sv_AddToHashTable
 
-Remove a server from the list and returns its "next" pointer
+Add a server to the hash table
 ====================
 */
-static server_t* Sv_RemoveAndGetNextPtr (server_t* sv, server_t** prev)
+static void Sv_AddToHashTable (server_t* sv, unsigned int hash)
 {
+	server_t** hash_entry_ptr;
+
+	assert (hash == Sv_AddressHash (&sv->address));
+
+	hash_entry_ptr = &hash_table[hash];
+	sv->next = *hash_entry_ptr;
+	sv->prev_ptr = hash_entry_ptr;
+	*hash_entry_ptr = sv;
+	if (sv->next != NULL)
+		sv->next->prev_ptr = &sv->next;
+}
+
+
+/*
+====================
+Sv_RemoveFromHashTable
+
+Remove a server from the hash table
+====================
+*/
+static void Sv_RemoveFromHashTable (server_t* sv)
+{
+	*sv->prev_ptr = sv->next;
+	if (sv->next != NULL)
+		sv->next->prev_ptr = sv->prev_ptr;	
+}
+
+
+/*
+====================
+Sv_Remove
+
+Remove a server from the lists
+====================
+*/
+static void Sv_Remove (server_t* sv)
+{
+	int sv_ind;
+
+	Sv_RemoveFromHashTable (sv);
+
+	// Mark this structure as "free"
+	sv->state = sv_state_unused_slot;
+
+	// Update first_free_slot if necessary
+	sv_ind = sv - servers;
+	if (first_free_slot == -1 || sv_ind < first_free_slot)
+		first_free_slot = sv_ind;
+
+	// If it was the last used slot, look for the previous one
+	if (last_used_slot == sv_ind)
+		do
+		{
+			last_used_slot--;
+		} while (last_used_slot >= 0 && servers[last_used_slot].state != sv_state_unused_slot);
+
 	nb_servers--;
 	MsgPrint (MSG_NORMAL,
 	          "> %s:%hu timed out; %u servers currently registered\n",
 	          inet_ntoa (sv->address.sin_addr), ntohs (sv->address.sin_port),
 			  nb_servers);
 
-	// Mark this structure as "free"
-	sv->active = false;
+	assert (last_used_slot >= (int)nb_servers - 1);
+}
 
-	*prev = sv->next;
-	return sv->next;
+
+/*
+====================
+Sv_IsActive
+
+Return true if a server is active.
+Test if the server has timed out and remove it if it's the case.
+====================
+*/
+static qboolean Sv_IsActive (unsigned int sv_ind)
+{
+	server_t* sv = &servers[sv_ind];
+
+	// If the entry isn't even used
+	if (sv->state == sv_state_unused_slot)
+		return false;
+	
+	assert (sv->gamename[0] != '\0' || sv->state == sv_state_uninitialized);
+
+	// If the server has timed out
+	if (sv->timeout < crt_time)
+	{
+		Sv_Remove (sv);
+		return false;
+	}
+
+	return true;
+}
+
+
+/*
+====================
+Sv_GetByAddr_Internal
+
+Search for a particular server in the list
+====================
+*/
+static server_t* Sv_GetByAddr_Internal (const struct sockaddr_in* address, unsigned int* same_address_found)
+{
+	unsigned int hash = Sv_AddressHash (address);
+	server_t* sv = hash_table[hash];
+
+	*same_address_found = 0;
+	while (sv != NULL)
+	{
+		server_t* next_sv = sv->next;
+
+		if (Sv_IsActive(sv - servers))
+		{
+			// Same address?
+			if (sv->address.sin_addr.s_addr == address->sin_addr.s_addr)
+			{
+				*same_address_found += 1;
+
+				// Found?
+				if (sv->address.sin_port == address->sin_port)
+				{
+					// Move it on top of the list (it's useful because heartbeats
+					// are almost always followed by infoResponses)
+					Sv_RemoveFromHashTable (sv);
+					Sv_AddToHashTable (sv, hash);
+
+					return sv;
+				}
+			}
+		}
+		
+		sv = next_sv;
+	}
+
+	return NULL;
+}
+
+
+/*
+====================
+Sv_CheckTimeouts
+
+Browse the server list and remove all the servers that have timed out
+====================
+*/
+static void Sv_CheckTimeouts (void)
+{
+	int ind;
+	
+	for (ind = 0; ind <= last_used_slot; ind++)
+		Sv_IsActive (ind);
 }
 
 
@@ -148,7 +292,20 @@ static qboolean Sv_ResolveAddr (const char* name, struct sockaddr_in* addr)
 	memcpy (&addr->sin_addr.s_addr, host->h_addr,
 			sizeof (addr->sin_addr.s_addr));
 	if (port != NULL)
-		addr->sin_port = htons ((unsigned short)atoi (port));
+	{
+		char* end_ptr;
+		unsigned short port_num;
+		
+		port_num = (unsigned short)strtol (port, &end_ptr, 0);
+		if (end_ptr == port || *end_ptr != '\0' || port_num == 0)
+		{
+			MsgPrint (MSG_ERROR, "> ERROR: %s is not a valid port number\n",
+					  port);
+			free (namecpy);
+			return false;
+		}
+		addr->sin_port = htons (port_num);
+	}
 
 	MsgPrint (MSG_DEBUG, "> \"%s\" resolved to %s:%hu\n",
 			  name, inet_ntoa (addr->sin_addr), ntohs (addr->sin_port));
@@ -169,6 +326,7 @@ static void Sv_InsertAddrmapIntoList (addrmap_t* new_map)
 {
 	addrmap_t* addrmap = addrmaps;
 	addrmap_t** prev = &addrmaps;
+	char from_addr [16];
 
 	// Stop at the end of the list, or if the addresses become too high
 	while (addrmap != NULL &&
@@ -182,11 +340,13 @@ static void Sv_InsertAddrmapIntoList (addrmap_t* new_map)
 			if (addrmap->from.sin_port == new_map->from.sin_port)
 			{
 				MsgPrint (MSG_WARNING,
-						  "> WARNING: Address %s:%hu has several mappings\n",
+						  "> WARNING: overwritting the previous mapping of address %s:%hu\n",
 						  inet_ntoa (new_map->from.sin_addr),
 						  ntohs (new_map->from.sin_port));
 
 				*prev = addrmap->next;
+				free (addrmap->from_string);
+				free (addrmap->to_string);
 				free (addrmap);
 			}
 			break;
@@ -200,9 +360,11 @@ static void Sv_InsertAddrmapIntoList (addrmap_t* new_map)
 	new_map->next = *prev;
 	*prev = new_map;
 
-	MsgPrint (MSG_NORMAL, "> Address \"%s\" mapped to \"%s\" (%s:%hu)\n",
-			  new_map->from_string, new_map->to_string,
-			  inet_ntoa (new_map->to.sin_addr), ntohs (new_map->to.sin_port));
+	strncpy (from_addr, inet_ntoa (new_map->from.sin_addr), sizeof(from_addr) - 1);
+	from_addr[sizeof(from_addr) - 1] = '\0';
+	MsgPrint (MSG_NORMAL, "> Address \"%s\" (%s:%hu) mapped to \"%s\" (%s:%hu)\n",
+			  new_map->from_string, from_addr, ntohs (new_map->from.sin_port),
+			  new_map->to_string, inet_ntoa (new_map->to.sin_addr), ntohs (new_map->to.sin_port));
 }
 
 
@@ -281,45 +443,6 @@ static qboolean Sv_ResolveAddrmap (addrmap_t* addrmap)
 }
 
 
-/*
-====================
-Sv_IsActive
-
-Return true if a server is active.
-Test if the server has timed out and remove it if it's the case.
-====================
-*/
-static qboolean Sv_IsActive (server_t* server)
-{
-
-	// If the entry isn't even used
-	if (! server->active)
-		return false;
-
-	// If the server has timed out
-	if (server->timeout < crt_time)
-	{
-		unsigned int hash;
-		server_t **prev, *sv;
-
-		hash = Sv_AddressHash (&server->address);
-		prev = &hash_table[hash];
-		sv = hash_table[hash];
-
-		while (sv != server)
-		{
-			prev = &sv->next;
-			sv = sv->next;
-		}
-
-		Sv_RemoveAndGetNextPtr (sv, prev);
-		return false;
-	}
-
-	return true;
-}
-
-
 // ---------- Public functions (servers) ---------- //
 
 /*
@@ -331,12 +454,8 @@ Set a new hash size value
 */
 qboolean Sv_SetHashSize (unsigned int size)
 {
-	// Too late?
-	if (hash_table != NULL)
-		return false;
-
-	// Too big or too small?
-	if (size > MAX_HASH_SIZE || size <= 0)
+	// Too late? Too small or too big?
+	if (hash_table != NULL || size <= 0 || size > MAX_HASH_SIZE)
 		return false;
 
 	hash_table_size = 1 << size;
@@ -348,16 +467,34 @@ qboolean Sv_SetHashSize (unsigned int size)
 ====================
 Sv_SetMaxNbServers
 
-Set a new hash size value
+Set a new maximum number of servers
 ====================
 */
 qboolean Sv_SetMaxNbServers (unsigned int nb)
+{
+	// Too late? Or too small?
+	if (servers != NULL || nb <= 0)
+		return false;
+
+	max_nb_servers = nb;
+	return true;
+}
+
+
+/*
+====================
+Sv_SetMaxNbServersPerAddress
+
+Set a new maximum number of servers for one given IP address
+====================
+*/
+qboolean Sv_SetMaxNbServersPerAddress (unsigned int nb)
 {
 	// Too late?
 	if (servers != NULL)
 		return false;
 
-	max_nb_servers = nb;
+	max_per_address = nb;
 	return true;
 }
 
@@ -383,9 +520,12 @@ qboolean Sv_Init (void)
 				  strerror (errno));
 		return false;
 	}
-	last_alloc = max_nb_servers - 1;
 	memset (servers, 0, array_size);
-	MsgPrint (MSG_NORMAL, "> %u server records allocated\n", max_nb_servers);
+	MsgPrint (MSG_NORMAL, "> %u server records allocated (maximum number per address: ", max_nb_servers);
+	if (max_per_address == 0)
+		MsgPrint (MSG_NORMAL, "unlimited)\n");
+	else
+		MsgPrint (MSG_NORMAL, "%u)\n", max_per_address);
 
 	// Allocate "hash_table" and clean it
 	array_size = hash_table_size * sizeof (hash_table[0]);
@@ -414,68 +554,70 @@ Search for a particular server in the list; add it if necessary
 */
 server_t* Sv_GetByAddr (const struct sockaddr_in* address, qboolean add_it)
 {
-	server_t **prev, *sv;
+	unsigned int nb_same_address = 0;
+	server_t *sv;
+	const addrmap_t* addrmap;
 	unsigned int hash;
-	const addrmap_t* addrmap = Sv_GetAddrmap (address);
-	unsigned int startpt;
+	unsigned int ind;
 
-	// Allow servers on a loopback address ONLY if a mapping is defined for them
-	if ((ntohl (address->sin_addr.s_addr) >> 24) == 127 && addrmap == NULL)
-	{
-		MsgPrint (MSG_WARNING,
-				  "> WARNING: server %s isn't allowed (loopback address)\n",
-				  peer_address);
-		return NULL;
-	}
-
-	hash = Sv_AddressHash (address);
-	prev = &hash_table[hash];
-	sv = hash_table[hash];
-
-	while (sv != NULL)
-	{
-		// We check the timeout values while browsing this list
-		if (sv->timeout < crt_time)
-		{
-			sv = Sv_RemoveAndGetNextPtr (sv, prev);
-			continue;
-		}
-
-		// Found!
-		if (sv->address.sin_addr.s_addr == address->sin_addr.s_addr &&
-			sv->address.sin_port == address->sin_port)
-		{
-			// Put it on top of the list (it's useful because heartbeats
-			// are almost always followed by infoResponses)
-			*prev = sv->next;
-			sv->next = hash_table[hash];
-			hash_table[hash] = sv;
-
-			return sv;
-		}
-
-		prev = &sv->next;
-		sv = sv->next;
-	}
+	sv = Sv_GetByAddr_Internal (address, &nb_same_address);
+	if (sv != NULL)
+		return sv;
 
 	if (! add_it)
 		return NULL;
 
-	// Look for the first free entry in "servers"
-	startpt = last_alloc;
-	for (;;)
+	assert (nb_same_address <= max_per_address || max_per_address == 0);
+	if (nb_same_address >= max_per_address && max_per_address != 0)
 	{
-		last_alloc = (last_alloc + 1) % max_nb_servers;
+		MsgPrint (MSG_WARNING,
+				  "> WARNING: server %s isn't allowed (max number of servers reached for this address)\n",
+				  peer_address);
+		return NULL;
+	}
 
-		// Free entry found?
-		if (!Sv_IsActive (&servers[last_alloc]))
-			break;
+	// Allow servers on a loopback address ONLY if a mapping is defined for them
+	addrmap = Sv_GetAddrmap (address);
+	if ((ntohl (address->sin_addr.s_addr) >> 24) == 127 && addrmap == NULL)
+	{
+		MsgPrint (MSG_WARNING,
+				  "> WARNING: server %s isn't allowed (loopback address without address mapping)\n",
+				  peer_address);
+		return NULL;
+	}
 
-		// No more room
-		if (last_alloc == startpt)
+	// If the list is full, check the entries to see if we can free a slot
+	if (nb_servers == max_nb_servers)
+	{
+		assert (last_used_slot == (int)max_nb_servers - 1);
+		assert (first_free_slot == -1);
+
+		Sv_CheckTimeouts ();
+		if (nb_servers == max_nb_servers)
 			return NULL;
 	}
-	sv = &servers[last_alloc];
+
+	// Use the first free entry in "servers"
+	assert (first_free_slot != -1);
+	assert (-1 <= last_used_slot);
+	assert (last_used_slot < (int)max_nb_servers);
+	sv = &servers[first_free_slot];
+	if (last_used_slot < first_free_slot)
+		last_used_slot = first_free_slot;
+
+	// Look for the next free entry in "servers"
+	ind = (unsigned int)first_free_slot + 1;
+	first_free_slot = -1;
+	while (ind < max_nb_servers)
+	{
+		if (! Sv_IsActive(ind))
+		{
+			first_free_slot = (int)ind;
+			break;
+		}
+
+		ind++;
+	}
 
 	// Initialize the structure
 	memset (sv, 0, sizeof (*sv));
@@ -483,17 +625,21 @@ server_t* Sv_GetByAddr (const struct sockaddr_in* address, qboolean add_it)
 	sv->addrmap = addrmap;
 
 	// Add it to the list it belongs to
-	sv->next = hash_table[hash];
-	hash_table[hash] = sv;
+	hash = Sv_AddressHash (address);
+	Sv_AddToHashTable (sv, hash);
+
+	sv->state = sv_state_uninitialized;
+	sv->timeout = crt_time + TIMEOUT_HEARTBEAT;
+
 	nb_servers++;
 
 	MsgPrint (MSG_NORMAL,
-			  "> New server added: %s; %u servers are currently registered\n",
-			  peer_address, nb_servers);
+			  "> New server added: %s. %u servers are now registered, including %u at this IP address\n",
+			  peer_address, nb_servers, nb_same_address + 1);
 	MsgPrint (MSG_DEBUG,
 			  "  - index: %u\n"
 			  "  - hash: 0x%02X\n",
-			  last_alloc, hash);
+			  (unsigned int)(sv - servers), hash);
 
 	return sv;
 }
@@ -508,9 +654,7 @@ Get the first server in the list
 */
 server_t* Sv_GetFirst (void)
 {
-	crt_server = NULL;
-	prev_pointer = NULL;
-	crt_hash_ind = -1;
+	crt_server_ind = -1;
 
 	return Sv_GetNext ();
 }
@@ -525,42 +669,17 @@ Get the next server in the list
 */
 server_t* Sv_GetNext (void)
 {
-	// If there is a current server, follow the link
-	if (crt_server != NULL)
+	assert(last_used_slot >= -1);
+	assert(last_used_slot < max_nb_servers);
+
+	while (crt_server_ind < last_used_slot)
 	{
-		prev_pointer = &crt_server->next;
-		crt_server = crt_server->next;
+		crt_server_ind++;
+		if (Sv_IsActive(crt_server_ind))
+			return &servers[crt_server_ind];
 	}
 
-	do
-	{
-		// If we are at the end of a list
-		if (crt_server == NULL)
-		{
-			// Search the hash table for the next server
-			while (crt_hash_ind < (int)(hash_table_size - 1))
-			{
-				crt_hash_ind++;
-
-				if (hash_table[crt_hash_ind] != NULL)
-				{
-					crt_server = hash_table[crt_hash_ind];
-					prev_pointer = &hash_table[crt_hash_ind];
-					break;
-				}
-			}
-		}
-
-		// Did we hit the end of the hash table?
-		if (crt_server == NULL)
-			return NULL;
-
-		// Remove timed-out servers from the list
-		while (crt_server != NULL && crt_server->timeout < crt_time)
-			crt_server = Sv_RemoveAndGetNextPtr (crt_server, prev_pointer);
-	} while (crt_server == NULL);
-
-	return crt_server;
+	return NULL;
 }
 
 
@@ -609,15 +728,16 @@ qboolean Sv_AddAddressMapping (const char* mapping)
 		return false;
 	}
 	memset (addrmap, 0, sizeof (*addrmap));
+
 	addrmap->from_string = strdup (map_string);
 	addrmap->to_string = strdup (to_ip);
+	free (map_string);
 	if (addrmap->from_string == NULL || addrmap->to_string == NULL)
 	{
 		MsgPrint (MSG_ERROR,
 				  "> ERROR: can't allocate address mapping strings\n");
 		free (addrmap->to_string);
 		free (addrmap->from_string);
-		free (map_string);
 		return false;
 	}
 
@@ -638,29 +758,23 @@ Resolve the address mapping list
 */
 qboolean Sv_ResolveAddressMappings (void)
 {
-	addrmap_t* unresolved = addrmaps;
 	addrmap_t* addrmap;
-	qboolean succeeded = true;
 
-	addrmaps = NULL;
-
-	while (unresolved != NULL)
-	{
-		// Remove it from the unresolved list
-		addrmap = unresolved;
-		unresolved = unresolved->next;
-
-		// Continue the resolution, even if there's an error
+	// Resolve all addresses
+	for (addrmap = addrmaps; addrmap != NULL; addrmap = addrmap->next)
 		if (!Sv_ResolveAddrmap (addrmap))
-		{
-			free (addrmap->from_string);
-			free (addrmap->to_string);
-			free (addrmap);
-			succeeded = false;
-		}
-		else
-			Sv_InsertAddrmapIntoList (addrmap);
+			return false;
+	
+	// Sort the list
+	addrmap = addrmaps;
+	addrmaps = NULL;
+	while (addrmap != NULL)
+	{
+		addrmap_t* next_addrmap = addrmap->next;
+		
+		Sv_InsertAddrmapIntoList (addrmap);
+		addrmap = next_addrmap;
 	}
 
-	return succeeded;
+	return true;
 }

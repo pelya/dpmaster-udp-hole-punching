@@ -30,6 +30,9 @@
 // Maximum number of servers in all lists by default
 #define DEFAULT_MAX_NB_SERVERS 1024
 
+// Maximum number of servers for one given IP address by default
+#define DEFAULT_MAX_NB_SERVERS_PER_ADDRESS 16
+
 // Address hash size in bits (between 0 and MAX_HASH_SIZE)
 #define DEFAULT_HASH_SIZE	8
 #define MAX_HASH_SIZE		8
@@ -54,20 +57,29 @@ typedef struct addrmap_s
 	char* to_string;
 } addrmap_t;
 
+// Server state
+typedef enum
+{
+	sv_state_unused_slot,
+	sv_state_uninitialized,
+	sv_state_empty,
+	sv_state_occupied,
+	sv_state_full,
+} server_state_t;
+
 // Server properties
 typedef struct server_s
 {
 	struct server_s* next;
+	struct server_s** prev_ptr;
+	server_state_t state;
 	struct sockaddr_in address;
-	unsigned int protocol;
+	int protocol;
 	char challenge [CHALLENGE_MAX_LENGTH];
-	unsigned short nbclients;
-	unsigned short maxclients;
 	time_t timeout;
 	time_t challenge_timeout;
 	char gamename [GAMENAME_LENGTH];
 	const struct addrmap_s* addrmap;
-	qboolean active;
 } server_t;
 
 
@@ -76,6 +88,7 @@ typedef struct server_s
 // Will simply return "false" if called after Sv_Init
 qboolean Sv_SetHashSize (unsigned int size);
 qboolean Sv_SetMaxNbServers (unsigned int nb);
+qboolean Sv_SetMaxNbServersPerAddress (unsigned int nb);
 
 // Initialize the server list and hash table
 qboolean Sv_Init (void);

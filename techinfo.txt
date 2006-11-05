@@ -21,10 +21,11 @@ Although great care has been taken to avoid issues regarding CPU endianess and
 word size, dpmaster has rarely been compiled and run on non-PC hardware. Please
 report us any (un)successful attempt on such a system.
 
-To compile dpmaster using GCC on a UNIX system, just type "make". To clean the
-directory from the binary and temporary files, type "make clean". Note that
-MinGW32 requires a special syntax: the commands are respectively "make mingw"
-and "make win32clean" in this case.
+To compile dpmaster using GCC on a UNIX system, just type "make" or "make debug"
+to build a debug version. To clean the directory from the binary and temporary
+files, type "make clean". Note that MinGW32 requires a special syntax: the
+commands are respectively "make mingw", "make mingw-debug" and "make win32clean"
+in this case.
 
 For compiling with MSVC6, double-click on "dpmaster.dsw" to load the project,
 go to the "Build" menu, then "Set Active Configuration..." and select "dpmaster
@@ -113,13 +114,15 @@ precisely the key names used by Q3A in the infostring.
 
             The message type is followed by a line feed character and the
             server's infostring. An infostring is a series of keys and values
-            separated by '\'. This infostring must contain the challenge
-            string sent by the master in the "getinfo" that triggered this
-            response (key name: "challenge"). "sv_maxclients" (the maximum
-            number of clients allowed on the server), "protocol" (the protocol
-            number) and "clients" (the current number of clients on the server)
-            must also be present. Except for Q3A, "gamename" (the game name) is
-            mandatory too.
+            separated by '\'. Popular keys include "hostname" (the host name),
+            "mapname" (the map currently played on this server).
+            This infostring must contain the challenge string sent by the
+            master in the "getinfo" that triggered this response (key name:
+            "challenge"). "sv_maxclients" (the maximum number of clients
+            allowed on the server; must not be 0), "protocol" (the protocol
+            number) and "clients" (the current number of clients on the
+            server) must also be present. Except for Q3A, "gamename" (the game
+            name) is mandatory too.
 
     4) getservers:
 

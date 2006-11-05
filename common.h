@@ -3,7 +3,7 @@
 
 	Common header file for dpmaster
 
-	Copyright (C) 2004-2005  Mathieu Olivier
+	Copyright (C) 2004-2006  Mathieu Olivier
 
 	This program is free software; you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -25,6 +25,7 @@
 #define _COMMON_H_
 
 
+#include <assert.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
