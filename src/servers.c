@@ -669,10 +669,6 @@ Get the next server in the list
 */
 server_t* Sv_GetNext (void)
 {
-	// Forest Hale: if a query comes in during startup when there are no servers, the assert on last_used_slot < max_nb_servers fails
-	if (max_nb_servers == 0)
-		return NULL;
-
 	assert(last_used_slot >= -1);
 	assert(last_used_slot < max_nb_servers);
 
