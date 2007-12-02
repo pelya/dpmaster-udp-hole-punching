@@ -45,7 +45,6 @@
 
 // Q3: "heartbeat QuakeArena-1\x0A"
 // DP: "heartbeat DarkPlaces\x0A"
-// QFusion: "heartbeat QFusion\x0A"
 #define S2M_HEARTBEAT "heartbeat"
 
 // Q3 & DP & QFusion: "getinfo A_Challenge"
