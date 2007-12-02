@@ -175,7 +175,7 @@ messages we can reasonably trust.
 When dpmaster receives an "heartbeat" message from a server, it will reply with
 a "getinfo" and register this server for a couple of seconds. If it hasn't sent
 back an "infoResponse" containing a valid challenge string by this time,
-dpmaster forgets it. Further "heartbeat" messages can't prolongate this time,
+dpmaster forgets it. Further "heartbeat" messages can't prolong this time,
 and the server IP address won't be transmitted to any client during that period
 of time.
 

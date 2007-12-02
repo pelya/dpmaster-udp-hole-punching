@@ -77,7 +77,7 @@ For your information, Windows systems since Win2k include a command line utility
 for running programs as another user, called "runas".
 
 Finally, you will probably be glad to know that dpmaster can't leak memory: in
-fact, no resources are allocated after the initialization.
+fact, no resources are allocated after the initialization phase.
 
 
 * ADDRESS MAPPING:
@@ -106,7 +106,7 @@ In this case, each time dpmaster would have transmitted "1.2.3.4" to a client,
 it will transmit the "myaddress.net" IP address instead.
 
 If you add a port number to the first address, then the switching will only
-occurred if the server matches the address and the port number.
+occur if the server matches the address and the port number.
 If you add a port number to the second address, then dpmaster will not only
 change the IP address, it will also change the port number.
 
