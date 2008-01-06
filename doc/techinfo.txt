@@ -19,7 +19,7 @@ problem(s) easily.
 
 Although great care has been taken to avoid issues regarding CPU endianess and
 word size, dpmaster has rarely been compiled and run on non-PC hardware. Please
-report us any (un)successful attempt on such a system.
+report us any problem on such a system.
 
 To compile dpmaster using GCC on a UNIX system, just type "make" or "make debug"
 to build a debug version. To clean the directory from the binary and temporary
