@@ -301,7 +301,7 @@ static qboolean ParseCommandLine (int argc, const char* argv [])
 				if (ind < argc)
 				{
 					unsigned int hash_size;
-					
+
 					start_ptr = argv[ind];
 					hash_size = (unsigned int)strtol (start_ptr, &end_ptr, 0);
 					if (end_ptr == start_ptr || *end_ptr != '\0')
@@ -348,7 +348,7 @@ static qboolean ParseCommandLine (int argc, const char* argv [])
 				if (ind < argc)
 				{
 					unsigned int max_nb_servers;
-					
+
 					start_ptr = argv[ind];
 					max_nb_servers = (unsigned int)strtol (start_ptr, &end_ptr, 0);
 					if (end_ptr == start_ptr || *end_ptr != '\0')
@@ -366,7 +366,7 @@ static qboolean ParseCommandLine (int argc, const char* argv [])
 				if (ind < argc)
 				{
 					unsigned int max_per_address;
-					
+
 					start_ptr = argv[ind];
 					max_per_address = (unsigned int)strtol (start_ptr, &end_ptr, 0);
 					if (end_ptr == start_ptr || *end_ptr != '\0')
@@ -666,14 +666,34 @@ int MsgPrint (msg_level_t msg_level, const char* format, ...)
 {
 	va_list args;
 	int result;
+	time_t mytime;
+	// LordHavoc: begin: print timestamps
+	char datestring[256];
+	static int printdate = true;
+	// LordHavoc: end: print timestamps
 
 	// If the message level is above the maximum level, don't print it
 	if (msg_level > max_msg_level)
 		return 0;
 
+	// LordHavoc: begin: print timestamps
+	if (printdate && format[0] && format[0] != '\n')
+	{
+		mytime = time(NULL);
+		strftime(datestring, sizeof(datestring), "%F %H:%M:%S UTC: ", gmtime(&mytime));
+		printf("%s", datestring);
+		printdate = false;
+	}
+	// LordHavoc: end: print timestamps
+
 	va_start (args, format);
 	result = vprintf (format, args);
 	va_end (args);
+
+	// LordHavoc: begin: print timestamps
+	if (format[0] && format[strlen(format)-1] == '\n')
+		printdate = true;
+	// LordHavoc: end: print timestamps
 
 	fflush (stdout);
 
