@@ -574,8 +574,8 @@ int main (int argc, const char* argv [])
 
 	MsgPrint (MSG_NORMAL,
 			  "\n"
-			  "dpmaster, a master server for DarkPlaces, Quake III Arena,\n"
-			  "and any game supporting the DarkPlaces master server protocol\n"
+			  "dpmaster, a master server supporting the DarkPlaces,\n"
+			  "and Quake III Arena master server protocols\n"
 			  "(version " VERSION ", compiled the " __DATE__ " at " __TIME__ ")\n"
 			  "\n");
 

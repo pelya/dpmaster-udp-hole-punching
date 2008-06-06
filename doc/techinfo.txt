@@ -1,6 +1,6 @@
 
-           Dpmaster, a master server for DarkPlaces, Quake III Arena
-         and any game supporting the DarkPlaces master server protocol
+              Dpmaster, a master server supporting the DarkPlaces
+                and Quake III Arena master server protocols
            ---------------------------------------------------------
 
                              Technical information
@@ -9,16 +9,15 @@
 
 * COMPILING DPMASTER:
 
-Dpmaster is being developed on PC hardware, on Linux and Windows, using GCC and
-MS Visual C++ 6 respectively. If you use one of these compilers, you should be
-able to compile dpmaster without any problem.
-Dpmaster is also regularly compiled on BSD systems, and on Win32 systems using
-MinGW32 (GCC for Win32). Occasionally, dpmaster may not compile on these
-configurations, but if you're a C developer you should be able to solve the
-problem(s) easily.
+Dpmaster is being developed mostly on PC hardware, on Linux and Windows, using
+GCC and MS Visual Studio respectively. If you use one of these compilers, you
+should be able to compile dpmaster without any problem.
+Dpmaster is also occasionally compiled on BSD systems, and on Win32 systems
+using MinGW32 (GCC for Win32). It may not compile on these configurations, but
+if you're a C developer you should be able to solve the problem(s) easily.
 
 Although great care has been taken to avoid issues regarding CPU endianess and
-word size, dpmaster has rarely been compiled and run on non-PC hardware. Please
+word size, dpmaster is rarely compiled and run on non-PC hardware. Please
 report us any problem on such a system.
 
 To compile dpmaster using GCC on a UNIX system, just type "make" or "make debug"

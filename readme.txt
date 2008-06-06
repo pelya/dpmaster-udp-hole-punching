@@ -1,6 +1,6 @@
 
-           Dpmaster, a master server for DarkPlaces, Quake III Arena
-         and any game supporting the DarkPlaces master server protocol
+              Dpmaster, a master server supporting the DarkPlaces
+                and Quake III Arena master server protocols
            ---------------------------------------------------------
 
                               General information
@@ -17,19 +17,20 @@ dpmaster supports DP servers and Q3A servers at the same time.
 An interesting property of dpmaster and its associated network protocol is that
 it supports any game using its protocol out of the box. As long as you send
 your game name correctly in the "infoResponse" and "getservers" messages (take
-a look at the technical information file for further explanations), any running
-dpmaster will accept and register your game. Of course, it doesn't exempt you
-from asking someone the permission to use his running instance of dpmaster. You
-don't want to be rude and get banned from his dpmaster, do you?
+a look at the "PROTOCOL" section in "doc/techinfo.txt" for further
+explanations), any running dpmaster will accept and register any game. Of
+course, it doesn't exempt you from asking someone the permission to use his
+running instance of dpmaster. You don't want to be rude and get banned from
+his master server, do you?
 
 Game engines supporting the DP master server protocol currently include
-DarkPlaces and all its derived games (Nexuiz, Transfusion, ...), QFusion and
-most of its derived games (Warsow, ...), and FTE QuakeWorld.
+DarkPlaces and all its derived games (such as Nexuiz and Transfusion), QFusion
+and most of its derived games (such as Warsow), and FTE QuakeWorld.
 
 Although dpmaster is being developed primarily on a Linux machine (i386), it
 should compile and run at least on any operating system from the Win32 or UNIX
-family. Take a look at the "COMPILING DPMASTER" section in "techinfo.txt" for
-more information. Be aware that some options are only available on UNIXes,
+family. Take a look at the "COMPILING DPMASTER" section in "doc/techinfo.txt"
+for more information. Be aware that some options are only available on UNIXes,
 including all security-related options. Take a look at the "SECURITY" section
 below for more information.
 
@@ -61,12 +62,12 @@ The UNIX/Linux version of dpmaster has even a builtin security mechanism that
 triggers when it is run with super-user (root) privileges. Basically, the
 process locks (chroots) itself in the empty directory "/var/empty/" and drops
 its privileges in favor of those of user "nobody" (notorious for having almost
-no privileges at all  :)  Note that this path and this user name are
+no privileges at all)  :)  Note that this path and this user name are
 customizable via the '-j' and '-u' command line options.
 
-If you want to run dpmaster on a Win2k/WinXP system, you may want to add a
-"dpmaster" user on your computer. Make it a normal user, not a power user or an
-administrator. You'll then be able to run dpmaster using this low-privilege
+If you want to run dpmaster on a Win2k system (or better), you may want to add
+a "dpmaster" user on your computer. Make it a normal user, not a power user or
+an administrator. You'll then be able to run dpmaster using this low-privilege
 account. Right click on "dpmaster.exe" while pressing the SHIFT button; select
 "Run as...", and type "dpmaster", the password you chose for it, and your
 domain main (your computer name probably). After a few seconds, dpmaster should
@@ -137,7 +138,8 @@ loopback address.
 * CHANGES:
 
     - version 1.7-devel:
-        New option to limit the number of servers per address (-N)
+        A few Perl scripts have been added to provide basic automated testing
+        New option to set the maximum number of servers per IP address (-N)
         Protocol numbers less than or equal to 0 are now handled correctly
         Servers can no longer keep their slots without sending infoResponses
         Games having a name starting with a number are now handled correctly
