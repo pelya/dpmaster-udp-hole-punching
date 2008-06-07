@@ -138,8 +138,13 @@ loopback address.
 * CHANGES:
 
     - version 1.7-devel:
-        A few Perl scripts have been added to provide basic automated testing
+        There's now a maximum number of servers per IP address (default: 16)
         New option to set the maximum number of servers per IP address (-N)
+        The maximum number of servers recorded by default is now 1024
+        The default hash size has been increased from 6 bits to 8 bits
+        A few Perl scripts have been added to provide basic automated testing
+        A rare bug where a server was occasionally skipped was fixed
+        The compilation with MS Visual Studio 2005 was fixed
         Protocol numbers less than or equal to 0 are now handled correctly
         Servers can no longer keep their slots without sending infoResponses
         Games having a name starting with a number are now handled correctly
@@ -148,11 +153,8 @@ loopback address.
         The requirement of a "clients" value in infoResponses is now enforced
         The "infoResponse" description in techinfo.txt has been corrected
         The "heartbeat" description in techinfo.txt has been corrected
-        The maximum number of servers recorded by default is now 1024
-        The default hash size has been increased from 6 bits to 8 bits
-        A rare bug where a server was occasionally skipped was fixed
-        The compilation with MS Visual Studio 2005 was fixed
-        Made it clearer that dpmaster can support any game out of the box
+        The time is now printed to the console each time a packet is received
+        Made it clear in the doc that any game can be supported out of the box
 
     - version 1.6:
         Several getserversResponse may now be sent for a single getservers
