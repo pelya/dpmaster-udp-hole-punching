@@ -670,7 +670,7 @@ Get the next server in the list
 server_t* Sv_GetNext (void)
 {
 	assert(last_used_slot >= -1);
-	assert(last_used_slot < max_nb_servers);
+	assert(last_used_slot < (int)max_nb_servers);
 
 	while (crt_server_ind < last_used_slot)
 	{
