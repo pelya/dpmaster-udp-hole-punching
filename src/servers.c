@@ -145,7 +145,7 @@ static void Sv_Remove (server_t* sv)
 
 	nb_servers--;
 	MsgPrint (MSG_NORMAL,
-	          "> %s:%hu timed out; %u servers currently registered\n",
+	          "> %s:%hu timed out; %u server(s) currently registered\n",
 	          inet_ntoa (sv->address.sin_addr), ntohs (sv->address.sin_port),
 			  nb_servers);
 
@@ -634,7 +634,7 @@ server_t* Sv_GetByAddr (const struct sockaddr_in* address, qboolean add_it)
 	nb_servers++;
 
 	MsgPrint (MSG_NORMAL,
-			  "> New server added: %s. %u servers are now registered, including %u at this IP address\n",
+			  "> New server added: %s. %u server(s) now registered, including %u at this IP address\n",
 			  peer_address, nb_servers, nb_same_address + 1);
 	MsgPrint (MSG_DEBUG,
 			  "  - index: %u\n"
