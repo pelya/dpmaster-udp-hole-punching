@@ -42,7 +42,7 @@
 // Default master port
 #define DEFAULT_MASTER_PORT 27950
 
-// Maximum and minimum sizes for a valid packet
+// Maximum and minimum sizes for a valid incoming packet
 #define MAX_PACKET_SIZE 2048
 #define MIN_PACKET_SIZE 5
 
@@ -81,6 +81,9 @@ static const char* jail_path = DEFAULT_JAIL_PATH;
 // Low privileges user
 static const char* low_priv_user = DEFAULT_LOW_PRIV_USER;
 #endif
+
+// Should we print the date before any new console message?
+static qboolean print_date = false;
 
 
 // ---------- Public variables ---------- //
@@ -574,10 +577,9 @@ int main (int argc, const char* argv [])
 
 	MsgPrint (MSG_NORMAL,
 			  "\n"
-			  "dpmaster, a master server supporting the DarkPlaces,\n"
+			  "dpmaster, a master server supporting the DarkPlaces\n"
 			  "and Quake III Arena master server protocols\n"
-			  "(version " VERSION ", compiled the " __DATE__ " at " __TIME__ ")\n"
-			  "\n");
+			  "(version " VERSION ", compiled the " __DATE__ " at " __TIME__ ")\n");
 
 	// If there was a mistake in the command line, print the help and exit
 	if (!valid_options)
@@ -586,10 +588,12 @@ int main (int argc, const char* argv [])
 		return EXIT_FAILURE;
 	}
 
+	crt_time = time (NULL);
+	print_date = true;
+
 	// Initializations
 	if (!SysInit () || !UnsecureInit () || !SecInit () || !SecureInit ())
 		return EXIT_FAILURE;
-	MsgPrint (MSG_NORMAL, "\n");
 
 	// Until the end of times...
 	for (;;)
@@ -598,6 +602,10 @@ int main (int argc, const char* argv [])
 		addrlen = sizeof (address);
 		nb_bytes = recvfrom (sock, packet, sizeof (packet) - 1, 0,
 							 (struct sockaddr*)&address, &addrlen);
+
+		// Print the date once per received packet
+		print_date = true;
+
 		if (nb_bytes <= 0)
 		{
 			MsgPrint (MSG_WARNING,
@@ -616,8 +624,8 @@ int main (int argc, const char* argv [])
 		// We print the packet contents if necessary
 		if (max_msg_level >= MSG_DEBUG)
 		{
-			MsgPrint (MSG_DEBUG, "> New packet received from %s at time %lu: ",
-					  peer_address, crt_time);
+			MsgPrint (MSG_DEBUG, "> New packet received from %s: ",
+					  peer_address);
 			PrintPacket ((qbyte*)packet, nb_bytes);
 		}
 
@@ -666,34 +674,23 @@ int MsgPrint (msg_level_t msg_level, const char* format, ...)
 {
 	va_list args;
 	int result;
-	time_t mytime;
-	// LordHavoc: begin: print timestamps
-	char datestring[256];
-	static int printdate = true;
-	// LordHavoc: end: print timestamps
 
 	// If the message level is above the maximum level, don't print it
 	if (msg_level > max_msg_level)
 		return 0;
 
-	// LordHavoc: begin: print timestamps
-	if (printdate && format[0] && format[0] != '\n')
+	// Print a time stamp if necessary
+	if (print_date)
 	{
-		mytime = time(NULL);
-		strftime(datestring, sizeof(datestring), "%F %H:%M:%S UTC: ", gmtime(&mytime));
-		printf("%s", datestring);
-		printdate = false;
+		char datestring [80];
+		strftime (datestring, sizeof(datestring), "\n* %Y-%m-%d %H:%M:%S %Z\n", localtime(&crt_time));
+		printf ("%s", datestring);
+		print_date = false;
 	}
-	// LordHavoc: end: print timestamps
 
 	va_start (args, format);
 	result = vprintf (format, args);
 	va_end (args);
-
-	// LordHavoc: begin: print timestamps
-	if (format[0] && format[strlen(format)-1] == '\n')
-		printdate = true;
-	// LordHavoc: end: print timestamps
 
 	fflush (stdout);
 
