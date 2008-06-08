@@ -57,6 +57,7 @@ my @failureDiagnostic = ();
 
 # Command-line options
 my $optVerbose = 0;
+my $optDpmasterOutput = 0;
 
 
 #***************************************************************************
@@ -92,7 +93,10 @@ BEGIN {
 #***************************************************************************
 INIT {
 	# Parse the options
-	GetOptions ("verbose" => \$optVerbose);
+	GetOptions (
+		"verbose" => \$optVerbose,
+		"dpmaster-output" => \$optDpmasterOutput,
+	);
 
 	# Install the signal handler
 	$SIG{TERM} = $SIG{HUP} = $SIG{INT} = \&Test_SignalHandler;
@@ -417,7 +421,9 @@ sub Client_Stop {
 sub Master_Run {
 	# Print the master server output
 	while (<DPMASTER_PROCESS>) {
-		#Common_VerbosePrint ("[DPM] $_");
+		if ($optDpmasterOutput) {
+			Common_VerbosePrint ("[DPM] $_");
+		}
 	}
 }
 
