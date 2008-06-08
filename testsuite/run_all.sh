@@ -1,5 +1,5 @@
 #!/bin/sh
-for i in test_*.pl ; do
+for i in test-*.pl ; do
 	echo '-' $i ;
 	./$i --verbose;
 done
