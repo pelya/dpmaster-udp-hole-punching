@@ -137,7 +137,7 @@ loopback address.
 
 * CHANGES:
 
-    - version 1.7-devel:
+    - version 1.7:
         There's now a maximum number of servers per IP address (default: 16)
         New option to set the maximum number of servers per IP address (-N)
         The maximum number of servers recorded by default is now 1024
