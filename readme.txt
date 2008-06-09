@@ -138,7 +138,7 @@ loopback address.
 * CHANGES:
 
     - version 1.7:
-        There's now a maximum number of servers per IP address (default: 16)
+        There's now a maximum number of servers per IP address (default: 32)
         New option to set the maximum number of servers per IP address (-N)
         The maximum number of servers recorded by default is now 1024
         The default hash size has been increased from 6 bits to 8 bits

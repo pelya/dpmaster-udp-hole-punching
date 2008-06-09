@@ -4,7 +4,7 @@
 	A master server for DarkPlaces, Quake 3 Arena
 	and any game supporting the DarkPlaces master server protocol
 
-	Copyright (C) 2002-2006  Mathieu Olivier
+	Copyright (C) 2002-2008  Mathieu Olivier
 
 	This program is free software; you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by

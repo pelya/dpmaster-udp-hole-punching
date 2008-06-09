@@ -3,7 +3,7 @@
 
 	Server list and address mapping management for dpmaster
 
-	Copyright (C) 2004-2006  Mathieu Olivier
+	Copyright (C) 2004-2008  Mathieu Olivier
 
 	This program is free software; you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -31,7 +31,7 @@
 #define DEFAULT_MAX_NB_SERVERS 1024
 
 // Maximum number of servers for one given IP address by default
-#define DEFAULT_MAX_NB_SERVERS_PER_ADDRESS 16
+#define DEFAULT_MAX_NB_SERVERS_PER_ADDRESS 32
 
 // Address hash size in bits (between 0 and MAX_HASH_SIZE)
 #define DEFAULT_HASH_SIZE	8
