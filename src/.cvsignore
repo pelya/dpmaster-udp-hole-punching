@@ -1,9 +1,0 @@
-*.d
-*.o
-ChangeLog
-dpmaster
-gmon.out
-*.ncb
-*.opt
-*.plg
-*.exe
