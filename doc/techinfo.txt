@@ -23,8 +23,8 @@ report us any problem on such a system.
 To compile dpmaster using GCC on a UNIX system, just type "make" or "make debug"
 to build a debug version. To clean the directory from the binary and temporary
 files, type "make clean". Note that MinGW32 requires a special syntax: the
-commands are respectively "make mingw", "make mingw-debug" and "make win32clean"
-in this case.
+commands are respectively "make mingw", "make mingw-debug" and
+"make mingw-clean" in this case.
 
 For compiling with MSVC6, double-click on "dpmaster.dsw" to load the project,
 go to the "Build" menu, then "Set Active Configuration..." and select "dpmaster
@@ -41,19 +41,23 @@ Software anonymous FTP site:
 We have tried to keep our protocol as close as possible to Q3A's one, for a
 matter of compatibility with the numerous tools that exist for this game.
 
-Dpmaster uses 5 types of messages: "heartbeat", "getinfo", "infoResponse",
-"getservers" and "getserversResponse". The first 3 types are used by servers to
-authenticate and register to a master server. The 2 remaining types are used by
-clients to get a list of servers from a master server. All messages start with
-4 bytes set to 0xFF (character 255), then the command type in plain text.
+Dpmaster uses 5 types of messages, plus 2 extra types for supporting IPv6, the
+successor of the current internet protocol IPv4. The 5 basic types are:
+"heartbeat", "getinfo", "infoResponse", "getservers" and "getserversResponse".
+The 2 extra types are "getserversExt" and "getserversExtResponse", 2 extended
+versions of the basic types "getservers" and "getserversResponse" respectively.
+The first 3 basic types are used by servers to authenticate and register to a
+master server. The remaining types are used by clients to get a list of servers
+from a master server. All messages start with 4 bytes set to 0xFF (character
+255), then the command type in plain text.
 
-The 2 types of messages which are likely to cause compliance problems with Q3A-
-compatible tools are: "heartbeat" (requires a different protocol string) and
+The 2 basic types of messages which are likely to cause compliance problems with
+Q3A-compatible tools are: "heartbeat" (requires a different protocol string) and
 "getservers" (requires a game name before the protocol number). Also, note that
 the "infoResponse" messages may be considered invalid by programs which require
 precisely the key names used by Q3A in the infostring.
 
-    1) heartbeat: 
+    1) heartbeat:
 
         - description:
 
@@ -128,7 +132,8 @@ precisely the key names used by Q3A in the infostring.
         - description:
 
              A "getservers" message is sent to a master by a client who wants
-             to get a list of servers.
+             to get a list of servers. It triggers a "getserversReponse"
+             message from the master.
 
         - samples:
 
@@ -147,8 +152,8 @@ precisely the key names used by Q3A in the infostring.
 
         - description:
 
-            A "getserversResponse" message contains a list of servers requested
-            by a client.
+            A "getserversResponse" message contains a list of IPv4 servers
+            requested by a client.
 
         - sample:
 
@@ -163,6 +168,51 @@ precisely the key names used by Q3A in the infostring.
              big-endian oriented (most significant bytes first). For instance,
              a server hosted at address 1.2.3.4 on port 2048 will be sent as:
              "\x01\x02\x03\x04\x08\x00".
+
+    6) getserversExt:
+
+        - description:
+
+             A "getserversExt" message is sent to a master by a client who wants
+             to get a list of servers. It triggers a "getserversExtReponse"
+             message from the master.
+
+        - sample:
+
+            "\xFF\xFF\xFF\xFFgetserversExt Quake3Arena 68 ipv4 empty ipv6"
+
+        - syntax:
+
+            The message must contain the game name, a protocol version, and
+            optionally a list of whitespace-separated filtering options. There
+            are currently 4 supported options: "empty" and "full", as in the
+            "getservers" message, and "ipv4" and "ipv6" to ask specifically for
+            servers using this/these protocol(s). If no protocol name appears
+            in the list, the master server won't filter the servers by protocol,
+            behaving in practice as if all protocols appeared in the list.
+
+    7) getserversExtResponse:
+
+        - description:
+
+            A "getserversExtResponse" message contains a list of IPv4 and/or
+            IPv6 servers requested by a client.
+
+        - sample:
+
+            "\xFF\xFF\xFF\xFFgetserversExtResponse/[...]\\[...]\\EOT\0\0\0"
+
+        - syntax:
+
+            The list of servers is composed of IPv4 and IPv6 addresses and their
+            associated ports. Each server is stored on 4 bytes for an IPv4
+            address, 16 bytes for an IPv6 address, plus 2 bytes for the port
+            number. To differenciate and separate those addresses, a '\'
+            character precedes every IPv4 address, and a '/' character precedes
+            every IPv6 address. The list ends with a fake IPv4 address
+            "EOT\0\0\0". All numbers are big-endian oriented (most significant
+            bytes first). For instance, an IPv4 server hosted at address 1.2.3.4
+            on port 2048 will be sent as: "\x01\x02\x03\x04\x08\x00".
 
 
 * BEHAVIOUR:

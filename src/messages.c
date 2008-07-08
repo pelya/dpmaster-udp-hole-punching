@@ -22,6 +22,7 @@
 
 
 #include "common.h"
+#include "system.h"
 #include "messages.h"
 #include "servers.h"
 
@@ -38,7 +39,7 @@
 #define GAMENAME_Q3A "Quake3Arena"
 
 // Maximum size of a reponse packet
-#define MAX_PACKET_SIZE 1400
+#define MAX_PACKET_SIZE_OUT 1400
 
 
 // Types of messages (with samples):
@@ -59,9 +60,17 @@
 // QFusion: "getservers qfusion 39 empty full"
 #define C2M_GETSERVERS "getservers "
 
+// DP: "getserversExt DarkPlaces-Quake 3 empty full ipv4 ipv6"
+// IOQuake3: "getserversExt 68 empty ipv6"
+#define C2M_GETSERVERSEXT "getserversExt "
+
 // Q3 & DP & QFusion:
 // "getserversResponse\\...(6 bytes)...\\...(6 bytes)...\\EOT\0\0\0"
 #define M2C_GETSERVERSREPONSE "getserversResponse"
+
+// DP & IOQuake3:
+// "getserversExtResponse\\...(6 bytes)...//...(18 bytes)...\\EOT\0\0\0"
+#define M2C_GETSERVERSEXTREPONSE "getserversExtResponse"
 
 
 
@@ -175,7 +184,7 @@ SendGetInfo
 Send a "getinfo" message to a server
 ====================
 */
-static void SendGetInfo (server_t* server)
+static void SendGetInfo (server_t* server, int recv_socket)
 {
 	char msg [64] = "\xFF\xFF\xFF\xFF" M2S_GETINFO " ";
 	size_t msglen;
@@ -192,11 +201,13 @@ static void SendGetInfo (server_t* server)
 	msglen = strlen (msg);
 	strncpy (msg + msglen, server->challenge, sizeof (msg) - msglen - 1);
 	msg[sizeof (msg) - 1] = '\0';
-	sendto (sock, msg, strlen (msg), 0,
-			(const struct sockaddr*)&server->address,
-			sizeof (server->address));
-
-	MsgPrint (MSG_DEBUG, "> %s <--- getinfo with challenge \"%s\"\n",
+	if (sendto (recv_socket, msg, strlen (msg), 0,
+				(const struct sockaddr*)&server->address,
+				server->addrlen) < 0)
+		MsgPrint (MSG_WARNING, "> WARNING: can't send getinfo (%s)\n",
+				  Sys_GetLastNetErrorString ());
+	else
+		MsgPrint (MSG_DEBUG, "> %s <--- getinfo with challenge \"%s\"\n",
 			  peer_address, server->challenge);
 }
 
@@ -208,19 +219,24 @@ HandleGetServers
 Parse getservers requests and send the appropriate response
 ====================
 */
-static void HandleGetServers (const char* msg, const struct sockaddr_in* addr)
+static void HandleGetServers (const char* msg, const struct sockaddr_storage* addr, socklen_t addrlen, int recv_socket, qboolean extended_request)
 {
-	const char* packetheader = "\xFF\xFF\xFF\xFF" M2C_GETSERVERSREPONSE "\\";
-	const size_t headersize = strlen (packetheader);
+	const char* packetheader;
+	size_t headersize;
 	char* end_ptr;
 	const char* msg_ptr;
 	char gamename [GAMENAME_LENGTH] = "";
-	qbyte packet [MAX_PACKET_SIZE];
+	qbyte packet [MAX_PACKET_SIZE_OUT];
 	size_t packetind;
 	server_t* sv;
 	int protocol;
-	qboolean no_empty;
-	qboolean no_full;
+	qboolean opt_empty = false;
+	qboolean opt_full = false;
+	qboolean opt_ipv4 = (! extended_request);
+	qboolean opt_ipv6 = false;
+	char filter_options [MAX_PACKET_SIZE_IN];
+	char* option_ptr;
+	unsigned int nb_servers = 0;
 
 	// Check if there's a name before the protocol number
 	// In this case, the message comes from a DarkPlaces-compatible client
@@ -246,40 +262,73 @@ static void HandleGetServers (const char* msg, const struct sockaddr_in* addr)
 		msg_ptr = msg;
 	}
 
-	MsgPrint (MSG_NORMAL, "> %s ---> getservers (%s)\n", peer_address,
+	MsgPrint (MSG_NORMAL, "> %s ---> %s (%s)\n",
+			  extended_request ? "getserversExt" : "getservers", peer_address,
 			  gamename);
 
-	no_empty = (strstr (msg_ptr, "empty") == NULL);
-	no_full = (strstr (msg_ptr, "full") == NULL);
+	// Parse the filtering options
+	strncpy (filter_options, msg_ptr, sizeof (filter_options) - 1);
+	filter_options[sizeof (filter_options) - 1] = '\0';
+	option_ptr = strtok (filter_options, " ");
+	while (option_ptr != NULL)
+	{
+		if (strcmp (option_ptr, "empty") == 0)
+			opt_empty = true;
+		else if (strcmp (option_ptr, "full") == 0)
+			opt_full = true;
+		else if (extended_request)
+		{
+			if (strcmp (option_ptr, "ipv4") == 0)
+				opt_ipv4 = true;
+			else if (strcmp (option_ptr, "ipv6") == 0)
+				opt_ipv6 = true;
+		}
+		option_ptr = strtok (NULL, " ");
+	}
+
+	// If no IP version was given for the filtering, accept any version
+	if (! opt_ipv4 && ! opt_ipv6)
+	{
+		opt_ipv4 = true;
+		opt_ipv6 = true;
+	}
 
 	// Initialize the packet contents with the header
+	if (extended_request)
+		packetheader = "\xFF\xFF\xFF\xFF" M2C_GETSERVERSEXTREPONSE;
+	else
+		packetheader = "\xFF\xFF\xFF\xFF" M2C_GETSERVERSREPONSE;
+	headersize = strlen (packetheader);
 	packetind = headersize;
 	memcpy(packet, packetheader, headersize);
 
 	// Add every relevant server
 	for (sv = Sv_GetFirst (); /* see below */;  sv = Sv_GetNext ())
 	{
-		unsigned int sv_addr;
-		unsigned short sv_port;
-
 		// If we're done, or if the packet is full, send the packet
-		if (sv == NULL || packetind > sizeof (packet) - (7 + 6))
+		if (sv == NULL || packetind > sizeof (packet) - (7 + 7))
 		{
+			const char* request_name;
+
 			// End Of Transmission
-			packet[packetind    ] = 'E';
-			packet[packetind + 1] = 'O';
-			packet[packetind + 2] = 'T';
-			packet[packetind + 3] = '\0';
+			packet[packetind    ] = '\\';
+			packet[packetind + 1] = 'E';
+			packet[packetind + 2] = 'O';
+			packet[packetind + 3] = 'T';
 			packet[packetind + 4] = '\0';
 			packet[packetind + 5] = '\0';
-			packetind += 6;
+			packet[packetind + 6] = '\0';
+			packetind += 7;
 
 			// Send the packet to the client
-			sendto (sock, packet, packetind, 0, (const struct sockaddr*)addr,
-					sizeof (*addr));
-
-			MsgPrint (MSG_DEBUG, "> %s <--- getserversResponse (%u servers)\n",
-						peer_address, (packetind - headersize - 6) / 7);
+			request_name = (extended_request ? "getserversExtResponse" : "getserversResponse");
+			if (sendto (recv_socket, packet, packetind, 0,
+					(const struct sockaddr*)addr, addrlen) < 0)
+				MsgPrint (MSG_WARNING, "> WARNING: can't send %s (%s)\n",
+						  request_name, Sys_GetLastNetErrorString ());
+			else
+				MsgPrint (MSG_DEBUG, "> %s <--- %s (%u servers)\n",
+						  request_name, peer_address, nb_servers);
 
 			// If we're done
 			if (sv == NULL)
@@ -291,27 +340,27 @@ static void HandleGetServers (const char* msg, const struct sockaddr_in* addr)
 
 		assert (sv->state != sv_state_unused_slot);
 
-		sv_addr = ntohl (sv->address.sin_addr.s_addr);
-		sv_port = ntohs (sv->address.sin_port);
-
 		// Extra debugging info
 		if (max_msg_level >= MSG_DEBUG)
 		{
+			const char * addrstr = Sys_SockaddrToString (&sv->address);
 			MsgPrint (MSG_DEBUG,
-					  "Comparing server: IP:\"%u.%u.%u.%u:%hu\", p:%d, g:\"%s\"\n",
-					  sv_addr >> 24, (sv_addr >> 16) & 0xFF,
-					  (sv_addr >>  8) & 0xFF, sv_addr & 0xFF,
-					  sv_port, sv->protocol, sv->gamename);
+					  "Comparing server: IP:\"%s\", p:%d, g:\"%s\"\n",
+					  addrstr, sv->protocol, sv->gamename);
 
+			if (sv->address.ss_family == AF_INET && ! opt_ipv4)
+				MsgPrint (MSG_DEBUG, "Reject: no IPv4 servers allowed\n");
+			if (sv->address.ss_family == AF_INET6 && ! opt_ipv6)
+				MsgPrint (MSG_DEBUG, "Reject: no IPv6 servers allowed\n");
 			if (sv->protocol != protocol)
 				MsgPrint (MSG_DEBUG,
 						  "Reject: protocol %d != requested %d\n",
 						  sv->protocol, protocol);
 			if (sv->state <= sv_state_uninitialized)
 				MsgPrint (MSG_DEBUG, "Reject: server is not initialized\n");
-			if (sv->state == sv_state_empty && no_empty)
+			if (sv->state == sv_state_empty && ! opt_empty)
 				MsgPrint (MSG_DEBUG, "Reject: server is empty && no_empty\n");
-			if (sv->state == sv_state_full && no_full)
+			if (sv->state == sv_state_full && ! opt_full)
 				MsgPrint (MSG_DEBUG, "Reject: server is full && no_full\n");
 			if (strcmp (gamename, sv->gamename) != 0)
 				MsgPrint (MSG_DEBUG,
@@ -319,52 +368,89 @@ static void HandleGetServers (const char* msg, const struct sockaddr_in* addr)
 						  sv->gamename, gamename);
 		}
 
-		// Check protocol, options, and gamename
+		// Check protocols, options, and gamename
 		if (sv->state <= sv_state_uninitialized ||
+			(sv->address.ss_family == AF_INET && ! opt_ipv4) ||
+			(sv->address.ss_family == AF_INET6 && ! opt_ipv6) ||
 			sv->protocol != protocol ||
-			(sv->state == sv_state_empty && no_empty) ||
-			(sv->state == sv_state_full && no_full) ||
+			(sv->state == sv_state_empty && ! opt_empty) ||
+			(sv->state == sv_state_full && ! opt_full) ||
 			strcmp (gamename, sv->gamename) != 0)
 		{
 			// Skip it
 			continue;
 		}
 
-		// Use the address mapping associated with the server, if any
-		if (sv->addrmap != NULL)
+		if (sv->address.ss_family == AF_INET)
 		{
-			const addrmap_t* addrmap = sv->addrmap;
+			const struct sockaddr_in* sv_sockaddr;
+			unsigned int sv_addr;
+			unsigned short sv_port;
 
-			sv_addr = ntohl (addrmap->to.sin_addr.s_addr);
-			if (addrmap->to.sin_port != 0)
-				sv_port = ntohs (addrmap->to.sin_port);
+			sv_sockaddr = (const struct sockaddr_in *)&sv->address;
+			sv_addr = ntohl (sv_sockaddr->sin_addr.s_addr);
+			sv_port = ntohs (sv_sockaddr->sin_port);
 
-			MsgPrint (MSG_DEBUG,
-					  "Server address mapped to %u.%u.%u.%u:%hu\n",
-					  sv_addr >> 24, (sv_addr >> 16) & 0xFF,
-					  (sv_addr >>  8) & 0xFF, sv_addr & 0xFF,
+			// Use the address mapping associated with the server, if any
+			if (sv->addrmap != NULL)
+			{
+				const addrmap_t* addrmap = sv->addrmap;
+
+				sv_addr = ntohl (addrmap->to.sin_addr.s_addr);
+				if (addrmap->to.sin_port != 0)
+					sv_port = ntohs (addrmap->to.sin_port);
+
+				MsgPrint (MSG_DEBUG,
+						  "Server address mapped to %u.%u.%u.%u:%hu\n",
+						  sv_addr >> 24, (sv_addr >> 16) & 0xFF,
+						  (sv_addr >>  8) & 0xFF, sv_addr & 0xFF,
+						  sv_port);
+			}
+
+			// Heading '\'
+			packet[packetind    ] = '\\';
+
+			// IP address
+			packet[packetind + 1] =  sv_addr >> 24;
+			packet[packetind + 2] = (sv_addr >> 16) & 0xFF;
+			packet[packetind + 3] = (sv_addr >>  8) & 0xFF;
+			packet[packetind + 4] =  sv_addr        & 0xFF;
+
+			// Port
+			packet[packetind + 5] = sv_port >> 8;
+			packet[packetind + 6] = sv_port & 0xFF;
+
+			MsgPrint (MSG_DEBUG, "  - Sending server %u.%u.%u.%u:%hu\n",
+					  packet[packetind + 1], packet[packetind + 2],
+					  packet[packetind + 3], packet[packetind + 4],
 					  sv_port);
+
+			packetind += 7;
+			nb_servers++;
 		}
+		else
+		{
+			const struct sockaddr_in6* sv_sockaddr6;
+			unsigned short sv_port;
 
-		// IP address
-		packet[packetind    ] =  sv_addr >> 24;
-		packet[packetind + 1] = (sv_addr >> 16) & 0xFF;
-		packet[packetind + 2] = (sv_addr >>  8) & 0xFF;
-		packet[packetind + 3] =  sv_addr        & 0xFF;
+			sv_sockaddr6 = (const struct sockaddr_in6 *)&sv->address;
 
-		// Port
-		packet[packetind + 4] = sv_port >> 8;
-		packet[packetind + 5] = sv_port & 0xFF;
+			// Heading '/'
+			packet[packetind] = '/';
+			packetind += 1;
 
-		// Trailing '\'
-		packet[packetind + 6] = '\\';
+			// IP address
+			memcpy (&packet[packetind], &sv_sockaddr6->sin6_addr.s6_addr,
+					sizeof(sv_sockaddr6->sin6_addr.s6_addr));
+			packetind += sizeof(sv_sockaddr6->sin6_addr.s6_addr);
 
-		MsgPrint (MSG_DEBUG, "  - Sending server %u.%u.%u.%u:%hu\n",
-				  packet[packetind    ], packet[packetind + 1],
-				  packet[packetind + 2], packet[packetind + 3],
-				  sv_port);
-
-		packetind += 7;
+			// Port
+			sv_port = ntohs (sv_sockaddr6->sin6_port);
+			packet[packetind    ] = sv_port >> 8;
+			packet[packetind + 1] = sv_port & 0xFF;
+			packetind += 2;
+			nb_servers++;
+		}
 	}
 }
 
@@ -382,8 +468,6 @@ static void HandleInfoResponse (server_t* server, const char* msg)
 	int new_protocol;
 	char* end_ptr;
 	unsigned int new_maxclients, new_clients;
-
-	MsgPrint (MSG_DEBUG, "> %s ---> infoResponse\n", peer_address);
 
 	// Check the challenge
 	if (!server->challenge_timeout || server->challenge_timeout < crt_time)
@@ -494,7 +578,9 @@ Parse a packet to figure out what to do with it
 ====================
 */
 void HandleMessage (const char* msg, size_t length,
-					const struct sockaddr_in* address)
+					const struct sockaddr_storage* address,
+					socklen_t addrlen,
+					int recv_socket)
 {
 	server_t* server;
 
@@ -509,22 +595,29 @@ void HandleMessage (const char* msg, size_t length,
 				  peer_address, gameId);
 
 		// Get the server in the list (add it to the list if necessary)
-		server = Sv_GetByAddr (address, true);
+		server = Sv_GetByAddr (address, addrlen, true);
 		if (server == NULL)
 			return;
 
 		assert (server->state != sv_state_unused_slot);
 
 		// Ask for some infos
-		SendGetInfo (server);
+		SendGetInfo (server, recv_socket);
 	}
 
 	// If it's an infoResponse message
 	else if (!strncmp (S2M_INFORESPONSE, msg, strlen (S2M_INFORESPONSE)))
 	{
-		server = Sv_GetByAddr (address, false);
+		MsgPrint (MSG_DEBUG, "> %s ---> infoResponse\n", peer_address);
+	
+		server = Sv_GetByAddr (address, addrlen, false);
 		if (server == NULL)
+		{
+			MsgPrint (MSG_WARNING,
+					  "> WARNING: infoResponse from unknown server %s\n",
+					  peer_address);
 			return;
+		}
 
 		HandleInfoResponse (server, msg + strlen (S2M_INFORESPONSE));
 	}
@@ -532,6 +625,14 @@ void HandleMessage (const char* msg, size_t length,
 	// If it's a getservers request
 	else if (!strncmp (C2M_GETSERVERS, msg, strlen (C2M_GETSERVERS)))
 	{
-		HandleGetServers (msg + strlen (C2M_GETSERVERS), address);
+		HandleGetServers (msg + strlen (C2M_GETSERVERS), address, addrlen,
+						  recv_socket, false);
+	}
+
+	// If it's a getserversExt request
+	else if (!strncmp (C2M_GETSERVERSEXT, msg, strlen (C2M_GETSERVERSEXT)))
+	{
+		HandleGetServers (msg + strlen (C2M_GETSERVERSEXT), address, addrlen,
+						  recv_socket, true);
 	}
 }

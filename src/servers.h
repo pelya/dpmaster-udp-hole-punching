@@ -28,14 +28,14 @@
 // ---------- Constants ---------- //
 
 // Maximum number of servers in all lists by default
-#define DEFAULT_MAX_NB_SERVERS 1024
+#define DEFAULT_MAX_NB_SERVERS 4096
 
 // Maximum number of servers for one given IP address by default
 #define DEFAULT_MAX_NB_SERVERS_PER_ADDRESS 32
 
 // Address hash size in bits (between 0 and MAX_HASH_SIZE)
-#define DEFAULT_HASH_SIZE	8
-#define MAX_HASH_SIZE		8
+#define DEFAULT_HASH_SIZE 8
+#define MAX_HASH_SIZE 16
 
 // Number of characters in a challenge, including the '\0'
 #define CHALLENGE_MIN_LENGTH 9
@@ -73,7 +73,8 @@ typedef struct server_s
 	struct server_s* next;
 	struct server_s** prev_ptr;
 	server_state_t state;
-	struct sockaddr_in address;
+	struct sockaddr_storage address;
+	socklen_t addrlen;
 	int protocol;
 	char challenge [CHALLENGE_MAX_LENGTH];
 	time_t timeout;
@@ -95,13 +96,16 @@ qboolean Sv_Init (void);
 
 // Search for a particular server in the list; add it if necessary
 // NOTE: doesn't change the current position for "Sv_GetNext"
-server_t* Sv_GetByAddr (const struct sockaddr_in* address, qboolean add_it);
+server_t* Sv_GetByAddr (const struct sockaddr_storage* address, socklen_t addrlen, qboolean add_it);
 
 // Get the first server in the list
 server_t* Sv_GetFirst (void);
 
 // Get the next server in the list
 server_t* Sv_GetNext (void);
+
+// Print the list of servers to the output
+void Sv_PrintServerList (msg_level_t msg_level);
 
 
 // ---------- Public functions (address mappings) ---------- //

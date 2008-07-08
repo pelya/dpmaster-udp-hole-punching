@@ -10,12 +10,22 @@ use POSIX qw(:sys_wait_h :stdlib_h);
 use Socket;
 use Time::HiRes qw(time sleep);
 
+# IPv6 support, if possible
+my $ipv6Supported = 0;
+eval "use Socket6";
+unless ($@) {
+	use Socket6;
+	$ipv6Supported = 1;
+}
+
 
 # Constants - dpmaster
 use constant DEFAULT_DPMASTER_PATH => "../src/dpmaster";
 use constant MAPPED_ADDRESS => "172.16.12.34";
 use constant DEFAULT_DPMASTER_OPTIONS => "-v -m 127.0.0.1=" . MAPPED_ADDRESS;
 use constant DEFAULT_DPMASTER_PORT => 27950;
+use constant IPV6_ADDRESS => "fe80::1";
+use constant IPV6_ADDRESS_WITH_INTERFACE => IPV6_ADDRESS . "%lo0";
 
 # Constants - game properties
 use constant DEFAULT_GAMENAME => "DpmasterTest";
@@ -72,6 +82,7 @@ BEGIN {
 	@EXPORT = qw(
 		&Client_New
 		&Client_SetGameProperty
+		&Client_SetProperty
 
 		&Master_SetProperty
 
@@ -116,17 +127,42 @@ END {
 #***************************************************************************
 sub Common_CreateSocket {
 	my $port = shift;
+	my $useIPv6 = shift;
+
+	my $proto = getprotobyname("udp");
+	my ($family, $addr, $dpmasterAddr);
+	if ($useIPv6) {
+		die "IPv6 support not enabled\n" unless ($ipv6Supported);
+
+		# Build the address for connect()
+		my @res = getaddrinfo (IPV6_ADDRESS_WITH_INTERFACE, $dpmasterProperties{port}, AF_INET6, SOCK_DGRAM, $proto, AI_NUMERICHOST);
+		if (scalar @res < 5) {
+			die "Can't resolve address [" . IPV6_ADDRESS_WITH_INTERFACE . "]:$port";
+		}
+		my ($sockType, $canonName);
+        ($family, $sockType, $proto, $dpmasterAddr, $canonName, @res) = @res;
+		
+		# Build the address for bind()
+		@res = getaddrinfo (IPV6_ADDRESS_WITH_INTERFACE, $port, AF_INET6, SOCK_DGRAM, $proto, AI_NUMERICHOST | AI_PASSIVE);
+		if (scalar @res < 5) {
+			die "Can't resolve address [" . IPV6_ADDRESS_WITH_INTERFACE . "]:$port";
+		}
+        ($family, $sockType, $proto, $addr, $canonName, @res) = @res;
+	}
+	else {
+		$family = PF_INET;
+		$addr = sockaddr_in ($port, INADDR_LOOPBACK);
+		$dpmasterAddr = sockaddr_in ($dpmasterProperties{port}, INADDR_LOOPBACK);
+	}
 
 	# Open an UDP socket
 	my $socket;
-	socket ($socket, PF_INET, SOCK_DGRAM, getprotobyname("udp")) or die "Can't create socket: $!\n";
+	socket ($socket, $family, SOCK_DGRAM, $proto) or die "Can't create socket: $!\n";
 
 	# Bind it to the port
-	my $addr = sockaddr_in ($port, INADDR_LOOPBACK);
 	bind ($socket, $addr) or die "Can't bind to port $port: $!\n";
 
 	# Connect the socket to the dpmaster address
-	my $dpmasterAddr = sockaddr_in ($dpmasterProperties{port}, INADDR_LOOPBACK);
 	connect ($socket, $dpmasterAddr) or die "Can't connect to the dpmaster address: $!\n";
 
 	# Make the IOs from this socket non-blocking
@@ -166,6 +202,7 @@ sub Common_SetNonBlockingIO {
 sub Client_CheckServerList {
 	my $clientRef = shift;
 
+	my $clUseIPv6 = $clientRef->{useIPv6};
 	my $clPropertiesRef = $clientRef->{gameProperties};
 	my $clGamename = $clPropertiesRef->{gamename};
 	my $clProtocol = $clPropertiesRef->{protocol};
@@ -174,12 +211,14 @@ sub Client_CheckServerList {
 
 	my @clientServerList = @{$clientRef->{serverList}};
 	foreach my $serverRef (@serverList) {
+		my $svUseIPv6 = $serverRef->{useIPv6};
 		my $svPropertiesRef = $serverRef->{gameProperties};
 		my $svGamename = $svPropertiesRef->{gamename};
 		my $svProtocol = $svPropertiesRef->{protocol};
 		
 		# Skip this server if it doesn't match the conditions
-		if (($svProtocol != $clProtocol) or
+		if (($svUseIPv6 != $clUseIPv6) or
+			($svProtocol != $clProtocol) or
 			(defined ($svGamename) != defined ($clGamename)) or
 			(defined ($svGamename) and ($svGamename ne $clGamename))) {
 			next;
@@ -188,7 +227,9 @@ sub Client_CheckServerList {
 		# Skip this server if it shouldn't be registered
 		next if ($serverRef->{cannotBeRegistered});
 
-		my $fullAddress = MAPPED_ADDRESS . ":" . $serverRef->{port};
+		my $fullAddress = ($svUseIPv6 ? "[" . IPV6_ADDRESS . "]" : MAPPED_ADDRESS);
+		$fullAddress .= ":" . $serverRef->{port};
+		
 		my $found = 0;
 		foreach my $index (0 .. $#clientServerList) {
 			if ($clientServerList[$index] eq $fullAddress) {
@@ -224,27 +265,40 @@ sub Client_HandleGetServersReponse {
 
 	my $clientRef = shift;
 	my $addrList = shift;
+	my $extended = shift;
 
 	my $strlen = length($addrList);
-	Common_VerbosePrint ("Client received a getserversResponse (" . ($strlen / 7 - 1) . " servers listed)\n");
+	Common_VerbosePrint ("Client received a getservers" . ($extended ? "Ext" : "") . "Response\n");
 	
 	for (;;) {
-		unless ($addrList =~ s/\\(.{4})(.{2})(\\.*|)$/$3/) {
+		if ($addrList =~ s/^\\(.{4})(.{2})([\\\/].*|)$/$3/) {
+			my $address = $1;
+			my $port = unpack ("n", $2);
+
+			# If end of transmission is found
+			if ($address eq "EOT\0" and $port == 0) {
+				Common_VerbosePrint ("    * End Of Transmission\n");
+				last;
+			}
+
+			my $fullAddress = inet_ntoa ($address) . ":" . $port;
+			push @{$clientRef->{serverList}}, $fullAddress;
+			Common_VerbosePrint ("    * Found a server at $fullAddress\n");
+		}
+		elsif ($addrList =~ s/^\/(.{16})(.{2})([\\\/].*|)$/$3/) {
+			die "IPv6 support not enabled\n" unless ($ipv6Supported);
+
+			my $address = $1;
+			my $port = unpack ("n", $2);
+
+			my $fullAddress = "[" . inet_ntop (AF_INET6, $address) . "]:" . $port;
+			push @{$clientRef->{serverList}}, $fullAddress;
+			Common_VerbosePrint ("    * Found a server at $fullAddress\n");
+		}
+		else {
 			Common_VerbosePrint ("    * WARNING: unexpected end of list\n");
 			last;
 		}
-		my $address = $1;
-		my $port = unpack ("n", $2);
-
-		# If end of transmission is found
-		if ($address eq "EOT\0" and $port == 0) {
-			Common_VerbosePrint ("    * End Of Transmission\n");
-			last;
-		}
-
-		my $fullAddress = inet_ntoa ($address) . ":" . $port;
-		push @{$clientRef->{serverList}}, $fullAddress;
-		Common_VerbosePrint ("    * Found a server at $fullAddress\n");
 	}
 	
 	$clientRef->{serverListCount}++;
@@ -287,6 +341,8 @@ sub Client_New {
 		socket => undef,
 		serverList => [],
 		serverListCount => 0,  # Nb of server lists received
+		alwaysUseExtendedQuery => 0,
+		useIPv6 => 0,
 
 		gameProperties => {
 			gamename => $gamename,
@@ -329,10 +385,11 @@ sub Client_Run {
 		my $recvPacket;
 		if (recv ($clientRef->{socket}, $recvPacket, 1500, 0)) {
 			# If we received a server list, unpack it
-			if ($recvPacket =~ /^\xFF\xFF\xFF\xFFgetserversResponse(\\.*)$/) {
-				my $addrList = $1;
+			if ($recvPacket =~ /^\xFF\xFF\xFF\xFFgetservers(Ext)?Response([\\\/].*)$/) {
+				my $extended = ((defined $1) and ($1 eq "Ext"));
+				my $addrList = $2;
 
-				Client_HandleGetServersReponse($clientRef, $addrList);
+				Client_HandleGetServersReponse($clientRef, $addrList, $extended);
 
 				# FIXME: handle the case when the master sends the list in more than 1 packet
 				$clientRef->{state} = "Done";
@@ -364,7 +421,11 @@ sub Client_SendGetServers {
 
 	Common_VerbosePrint ("Sending getservers from client\n");
 	my $gameProp = $clientRef->{gameProperties};
+
 	my $getservers = "\xFF\xFF\xFF\xFFgetservers";
+	if ($clientRef->{useIPv6} or $clientRef->{alwaysUseExtendedQuery}) {
+		$getservers .= "Ext";
+	}
 
 	if (defined ($gameProp->{gamename})) {
 		$getservers .= " $gameProp->{gamename}";
@@ -387,12 +448,27 @@ sub Client_SetGameProperty {
 
 	
 #***************************************************************************
+# Client_SetProperty
+#***************************************************************************
+sub Client_SetProperty {
+	my $clientRef = shift;
+	my $propertyName = shift;
+	my $propertyValue = shift;
+	
+	# If the property doesn't exist, there is a problem in the caller script
+	die if (not exists $clientRef->{$propertyName});
+
+	$clientRef->{$propertyName} = $propertyValue;
+}
+
+	
+#***************************************************************************
 # Client_Start
 #***************************************************************************
 sub Client_Start {
 	my $clientRef = shift;
 
-	$clientRef->{socket} = Common_CreateSocket ($clientRef->{port});
+	$clientRef->{socket} = Common_CreateSocket ($clientRef->{port}, $clientRef->{useIPv6});
 	$clientRef->{state} = "Init";
 }
 
@@ -534,6 +610,7 @@ sub Server_New {
 		masterProtocol => $masterProtocol,
 		socket => undef,
 		cannotBeRegistered => 0,
+		useIPv6 => 0,
 		
 		gameProperties => {
 			gamename => $gamename,
@@ -664,7 +741,7 @@ sub Server_SetProperty {
 sub Server_Start {
 	my $serverRef = shift;
 
-	$serverRef->{socket} = Common_CreateSocket($serverRef->{port});
+	$serverRef->{socket} = Common_CreateSocket($serverRef->{port}, $serverRef->{useIPv6});
 	$serverRef->{state} = "Init";
 	$serverRef->{heartbeatTime} = $currentTime + 0.5;
 }
@@ -758,6 +835,9 @@ sub Test_Run {
 		$testTitle = "Test " . $testNumber;
 	}
 	print ("    * " . $testTitle . "\n");
+
+	my $ipv6Status = ($ipv6Supported ? "enabled" : "disabled");
+	Common_VerbosePrint ("IPv6 support " . $ipv6Status . "\n");
 
 	@failureDiagnostic = ();
 	$currentTime = time();

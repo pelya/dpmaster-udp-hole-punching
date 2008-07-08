@@ -1,3 +1,4 @@
+
 /*
 	dpmaster.c
 
@@ -22,14 +23,8 @@
 */
 
 
-#include <stdarg.h>
-
-#ifndef WIN32
-# include <pwd.h>
-# include <unistd.h>
-#endif
-
 #include "common.h"
+#include "system.h"
 #include "messages.h"
 #include "servers.h"
 
@@ -37,59 +32,141 @@
 // ---------- Constants ---------- //
 
 // Version of dpmaster
-#define VERSION "1.7"
+#define VERSION "2.0-devel"
 
 // Default master port
 #define DEFAULT_MASTER_PORT 27950
 
-// Maximum and minimum sizes for a valid incoming packet
-#define MAX_PACKET_SIZE 2048
-#define MIN_PACKET_SIZE 5
-
-#ifndef WIN32
-// Default path we use for chroot
-# define DEFAULT_JAIL_PATH "/var/empty/"
-
-// User we use by default for dropping super-user privileges
-# define DEFAULT_LOW_PRIV_USER "nobody"
-#endif
-
-
-// ---------- Types ---------- //
-
-#ifdef WIN32
-typedef int socklen_t;
-#endif
-
 
 // ---------- Private variables ---------- //
-
-// The port we use
-static unsigned short master_port = DEFAULT_MASTER_PORT;
-
-// Local address we listen on, if any
-static const char* listen_name = NULL;
-static struct in_addr listen_addr;
-
-#ifndef WIN32
-// On UNIX systems, we can run as a daemon
-static qboolean daemon_mode = false;
-
-// Path we use for chroot
-static const char* jail_path = DEFAULT_JAIL_PATH;
-
-// Low privileges user
-static const char* low_priv_user = DEFAULT_LOW_PRIV_USER;
-#endif
 
 // Should we print the date before any new console message?
 static qboolean print_date = false;
 
+// Cross-platform command line options
+static const cmdlineopt_t cmdline_options [] =
+{
+	{
+		"help",
+		NULL,
+		"this help text",
+		{ 0, 0 },
+		'h',
+		false,
+		false
+	},
+	{
+		"hash-size",
+		"<hash_size>",
+		"hash size in bits, up to %d (default: %d)",
+		{ MAX_HASH_SIZE, DEFAULT_HASH_SIZE },
+		'H',
+		true,
+		true
+	},
+	{
+		"listen",
+		"<address>",
+		"listen on local address <address>\n"
+		"   You can listen on up to %d addresses",
+		{ MAX_LISTEN_SOCKETS, 0 },
+		'l',
+		true,
+		true
+	},
+	{
+		"log",
+		NULL,
+		"enable the logging to disk",
+		{ 0, 0 },
+		'L',
+		false,
+		false
+	},
+	{
+		"log-file",
+		"<file_path>",
+		"use <file_path> as the log file (default: " DEFAULT_LOG_FILE ")",
+		{ 0, 0 },
+		'\0',
+		true,
+		true
+	},
+	{
+		"map",
+		"<a1>=<a2>",
+		"map address <a1> to <a2> when sending it to clients\n"
+		"   addresses can contain a port number (ex: myaddr.net:1234)",
+		{ 0, 0 },
+		'm',
+		true,
+		true
+	},
+	{
+		"max-servers",
+		"<max_servers>",
+		"maximum number of servers recorded (default: %d)",
+		{ DEFAULT_MAX_NB_SERVERS, 0 },
+		'n',
+		true,
+		true
+	},
+	{
+		"max-servers-per-addr",
+		"<max_per_addr>",
+		"maximum number of servers per address (default: %d)\n"
+		"   0 means there's no limit",
+		{ DEFAULT_MAX_NB_SERVERS_PER_ADDRESS, 0 },
+		'N',
+		true,
+		true
+	},
+	{
+		"port",
+		"<port_num>",
+		"default network port (default value: %d)",
+		{ DEFAULT_MASTER_PORT, 0 },
+		'p',
+		true,
+		true
+	},
+	{
+		"verbose",
+		"[verbose_lvl]",
+		"verbose level, up to %d (default: %d; no value means max)",
+		{ MSG_DEBUG, MSG_NORMAL },
+		'v',
+		true,
+		false
+	},
+	{
+		NULL,
+		NULL,
+		NULL,
+		{ 0, 0 },
+		'\0',
+		false,
+		false
+	}
+};
+
+// Log file path
+static const char* log_filepath = DEFAULT_LOG_FILE;
+
+// Should we (re)open the log file?
+static volatile qboolean must_open_log = false;
+
+// Should we close the log file?
+static volatile qboolean must_close_log = false;
+
+// The log file
+static FILE* log_file = NULL;
+
 
 // ---------- Public variables ---------- //
 
-// The master socket
-int sock = -1;
+// The port we use by default
+unsigned short master_port = DEFAULT_MASTER_PORT;
 
 // The current time (updated every time we receive a packet)
 time_t crt_time;
@@ -138,29 +215,6 @@ static void PrintPacket (const qbyte* packet, size_t length)
 
 /*
 ====================
-SysInit
-
-System dependent initializations
-====================
-*/
-static qboolean SysInit (void)
-{
-#ifdef WIN32
-	WSADATA winsockdata;
-
-	if (WSAStartup (MAKEWORD (1, 1), &winsockdata))
-	{
-		MsgPrint (MSG_ERROR, "> ERROR: can't initialize winsocks\n");
-		return false;
-	}
-#endif
-
-	return true;
-}
-
-
-/*
-====================
 UnsecureInit
 
 System independent initializations, called BEFORE the security initializations.
@@ -174,27 +228,9 @@ static qboolean UnsecureInit (void)
 	if (! Sv_ResolveAddressMappings ())
 		return false;
 
-	// Resolve the listen address if one was specified
-	if (listen_name != NULL)
-	{
-		struct hostent* itf;
-
-		itf = gethostbyname (listen_name);
-		if (itf == NULL)
-		{
-			MsgPrint (MSG_ERROR, "> ERROR: can't resolve %s\n", listen_name);
-			return false;
-		}
-		if (itf->h_addrtype != AF_INET)
-		{
-			MsgPrint (MSG_ERROR, "> ERROR: %s is not an IPv4 address\n",
-					  listen_name);
-			return false;
-		}
-
-		memcpy (&listen_addr.s_addr, itf->h_addr,
-				sizeof (listen_addr.s_addr));
-	}
+	// Resolve the listening socket addresses
+	if (! Sys_ResolveListenAddresses ())
+		return false;
 
 	return true;
 }
@@ -202,62 +238,131 @@ static qboolean UnsecureInit (void)
 
 /*
 ====================
-SecInit
+Cmdline_Option
 
-Security initializations (system dependent)
+Parse a system-independent command line option
+"param" may be NULL, if the option doesn't need a parameter
 ====================
 */
-static qboolean SecInit (void)
+static qboolean Cmdline_Option (const cmdlineopt_t* opt, const char* param)
 {
-#ifndef WIN32
-	// Should we run as a daemon?
-	if (daemon_mode && daemon (0, 0))
-	{
-		MsgPrint (MSG_NOPRINT, "> ERROR: daemonization failed (%s)\n",
-				  strerror (errno));
+	const char* opt_name;
+	
+	assert (param == NULL || opt->accept_param);
+	assert (param != NULL || ! opt->need_param);
+
+	opt_name = opt->long_name;
+
+	// Help
+	if (strcmp (opt_name, "help") == 0)
 		return false;
-	}
 
-	// UNIX allows us to be completely paranoid, so let's go for it
-	if (geteuid () == 0)
+	// Hash size
+	else if (strcmp (opt_name, "hash-size") == 0)
 	{
-		struct passwd* pw;
+		const char* start_ptr;
+		char* end_ptr;
+		unsigned int hash_size;
 
-		MsgPrint (MSG_WARNING,
-				  "> WARNING: running with super-user privileges\n");
-
-		// We must get the account infos before the calls to chroot and chdir
-		pw = getpwnam (low_priv_user);
-		if (pw == NULL)
-		{
-			MsgPrint (MSG_ERROR, "> ERROR: can't get user \"%s\" properties\n",
-					  low_priv_user);
+		start_ptr = param;
+		hash_size = (unsigned int)strtol (start_ptr, &end_ptr, 0);
+		if (end_ptr == start_ptr || *end_ptr != '\0')
 			return false;
-		}
 
-		// Chroot ourself
-		MsgPrint (MSG_NORMAL, "  - chrooting myself to %s... ", jail_path);
-		if (chroot (jail_path) || chdir ("/"))
-		{
-			MsgPrint (MSG_ERROR, "FAILED (%s)\n", strerror (errno));
-			return false;
-		}
-		MsgPrint (MSG_NORMAL, "succeeded\n");
-
-		// Switch to lower privileges
-		MsgPrint (MSG_NORMAL, "  - switching to user \"%s\" privileges... ",
-				  low_priv_user);
-		if (setgid (pw->pw_gid) || setuid (pw->pw_uid))
-		{
-			MsgPrint (MSG_ERROR, "FAILED (%s)\n", strerror (errno));
-			return false;
-		}
-		MsgPrint (MSG_NORMAL, "succeeded (UID: %u, GID: %u)\n",
-				  pw->pw_uid, pw->pw_gid);
-
-		MsgPrint (MSG_NORMAL, "\n");
+		return Sv_SetHashSize (hash_size);
 	}
-#endif
+
+	// Listen address
+	else if (strcmp (opt_name, "listen") == 0)
+	{
+		if (param[0] == '\0')
+			return false;
+
+		return Sys_DeclareListenAddress (param);
+	}
+
+	// Log
+	else if (strcmp (opt_name, "log") == 0)
+		must_open_log = true;
+
+	// Log file
+	else if (strcmp (opt_name, "log-file") == 0)
+	{
+		if (param[0] == '\0')
+			return false;
+
+		log_filepath = param;
+	}
+
+	// Address mapping
+	else if (strcmp (opt_name, "map") == 0)
+		return Sv_AddAddressMapping (param);
+
+	// Maximum number of servers
+	else if (strcmp (opt_name, "max-servers") == 0)
+	{
+		const char* start_ptr;
+		char* end_ptr;
+		unsigned int max_nb_servers;
+
+		start_ptr = param;
+		max_nb_servers = (unsigned int)strtol (start_ptr, &end_ptr, 0);
+		if (end_ptr == start_ptr || *end_ptr != '\0')
+			return false;
+		
+		return Sv_SetMaxNbServers (max_nb_servers);
+	}
+
+	// Maximum number of servers per address
+	else if (strcmp (opt_name, "max-servers-per-addr") == 0)
+	{
+		const char* start_ptr;
+		char* end_ptr;
+		unsigned int max_per_address;
+		
+		start_ptr = param;
+		max_per_address = (unsigned int)strtol (start_ptr, &end_ptr, 0);
+		if (end_ptr == start_ptr || *end_ptr != '\0')
+			return false;
+		
+		return Sv_SetMaxNbServersPerAddress (max_per_address);
+	}
+
+	// Port number
+	else if (strcmp (opt_name, "port") == 0)
+	{
+		const char* start_ptr;
+		char* end_ptr;
+		unsigned short port_num;
+		
+		start_ptr = param;
+		port_num = (unsigned short)strtol (start_ptr, &end_ptr, 0);
+		if (end_ptr == start_ptr || *end_ptr != '\0' || port_num == 0)
+			return false;
+
+		master_port = port_num;
+	}
+
+	// Verbose level
+	else if (strcmp (opt_name, "verbose") == 0)
+	{
+		// If a verbose level has been specified
+		if (param != NULL)
+		{
+			const char* start_ptr;
+			char* end_ptr;
+			unsigned int vlevel;
+
+			start_ptr = param;
+			vlevel = (unsigned int)strtol (start_ptr, &end_ptr, 0);
+			if (end_ptr == start_ptr || *end_ptr != '\0' ||
+				vlevel > MSG_DEBUG)
+				return false;
+			max_msg_level = vlevel;
+		}
+		else
+			max_msg_level = MSG_DEBUG;
+	}
 
 	return true;
 }
@@ -273,181 +378,187 @@ Parse the options passed by the command line
 static qboolean ParseCommandLine (int argc, const char* argv [])
 {
 	int ind = 1;
-	unsigned int vlevel = max_msg_level;
 	qboolean valid_options = true;
-	const char* start_ptr;
-	char* end_ptr;
 
 	while (ind < argc && valid_options)
 	{
+		const char* crt_arg = argv[ind];
+
+		valid_options = false;
+
 		// If it doesn't even look like an option, why bother?
-		if (argv[ind][0] != '-')
-			valid_options = false;
-
-		else switch (argv[ind][1])
+		if (crt_arg[0] == '-' && crt_arg[1] != '\0')
 		{
-#ifndef WIN32
-			// Daemon mode
-			case 'D':
-				daemon_mode = true;
-				break;
-#endif
+			const cmdlineopt_t* cmdline_opt = NULL;
+			const char* param = NULL;
+			qboolean sys_option;
 
-			// Help
-			case 'h':
-				valid_options = false;
-				break;
-
-			// Hash size
-			case 'H':
-				ind++;
-				if (ind < argc)
-				{
-					unsigned int hash_size;
-
-					start_ptr = argv[ind];
-					hash_size = (unsigned int)strtol (start_ptr, &end_ptr, 0);
-					if (end_ptr == start_ptr || *end_ptr != '\0')
-						valid_options = false;
-					else
-						valid_options = Sv_SetHashSize (hash_size);
-				}
-				else
-					valid_options = false;
-				break;
-
-#ifndef WIN32
-			// Jail path
-			case 'j':
-				ind++;
-				if (ind < argc)
-					jail_path = argv[ind];
-				else
-					valid_options = false;
-				break;
-#endif
-
-			// Listen address
-			case 'l':
-				ind++;
-				if (ind >= argc || argv[ind][0] == '\0')
-					valid_options = false;
-				else
-					listen_name = argv[ind];
-				break;
-
-			// Address mapping
-			case 'm':
-				ind++;
-				if (ind < argc)
-					valid_options = Sv_AddAddressMapping (argv[ind]);
-				else
-					valid_options = false;
-				break;
-
-			// Maximum number of servers
-			case 'n':
-				ind++;
-				if (ind < argc)
-				{
-					unsigned int max_nb_servers;
-
-					start_ptr = argv[ind];
-					max_nb_servers = (unsigned int)strtol (start_ptr, &end_ptr, 0);
-					if (end_ptr == start_ptr || *end_ptr != '\0')
-						valid_options = false;
-					else
-						valid_options = Sv_SetMaxNbServers (max_nb_servers);
-				}
-				else
-					valid_options = false;
-				break;
-
-			// Maximum number of servers per address
-			case 'N':
-				ind++;
-				if (ind < argc)
-				{
-					unsigned int max_per_address;
-
-					start_ptr = argv[ind];
-					max_per_address = (unsigned int)strtol (start_ptr, &end_ptr, 0);
-					if (end_ptr == start_ptr || *end_ptr != '\0')
-						valid_options = false;
-					else
-						valid_options = Sv_SetMaxNbServersPerAddress (max_per_address);
-				}
-				else
-					valid_options = false;
-				break;
-
-			// Port number
-			case 'p':
+			// If it's a long option
+			if (crt_arg[1] == '-')
 			{
-				ind++;
-				if (ind < argc)
-				{
-					unsigned short port_num;
+				const char* equal_char;
+				char option_name [64];
+				unsigned int cmd_ind;
 
-					start_ptr = argv[ind];
-					port_num = (unsigned short)strtol (start_ptr, &end_ptr, 0);
-					if (end_ptr == start_ptr || *end_ptr != '\0' || port_num == 0)
-						valid_options = false;
-					else
-						master_port = port_num;
+				// Extract the option, and its attached parameter if any
+				equal_char = strchr (&crt_arg[2], '=');
+				if (equal_char != NULL)
+				{
+					size_t opt_size = equal_char - &crt_arg[2];
+
+					// If it's an invalid option
+					if (opt_size <= 0 || opt_size >= sizeof (option_name))
+						break;
+
+					memcpy (option_name, &crt_arg[2], opt_size);
+					option_name[opt_size] = '\0';
+
+					param = equal_char + 1;
 				}
 				else
-					valid_options = false;
-				break;
+				{
+					strncpy (option_name, &crt_arg[2], sizeof (option_name) - 1);
+					option_name[sizeof (option_name) - 1] = '\0';
+				}
+
+				// Cross-platform options
+				for (cmd_ind = 0; cmdline_options[cmd_ind].long_name != NULL; cmd_ind++)
+					if (strcmp (cmdline_options[cmd_ind].long_name, option_name) == 0)
+					{
+						cmdline_opt = &cmdline_options[cmd_ind];
+						sys_option = false;
+						break;
+					}
+
+				if (cmdline_opt == NULL)
+				{
+					// System-dependent options
+					for (cmd_ind = 0; sys_cmdline_options[cmd_ind].long_name != NULL; cmd_ind++)
+						if (strcmp (sys_cmdline_options[cmd_ind].long_name, option_name) == 0)
+						{
+							cmdline_opt = &sys_cmdline_options[cmd_ind];
+							sys_option = true;
+							break;
+						}
+				}
 			}
 
-#ifndef WIN32
-			// Low privileges user
-			case 'u':
-				ind++;
-				if (ind < argc)
-					low_priv_user = argv[ind];
-				else
-					valid_options = false;
-				break;
-#endif
+			// If it's a short option
+			else
+			{
+				const char short_cmd = crt_arg[1];
+				unsigned int cmd_ind;
 
-			// Verbose level
-			case 'v':
-				// If a verbose level has been specified
-				if (ind + 1 < argc && argv[ind + 1][0] != '-')
+				// Extract the attached parameter if any
+				assert (crt_arg[1] != '\0');
+				if (crt_arg[2] != '\0')
+					param = &crt_arg[2];
+
+				// Cross-platform options
+				for (cmd_ind = 0; cmdline_options[cmd_ind].long_name != NULL; cmd_ind++)
+					if (cmdline_options[cmd_ind].short_name == short_cmd)
+					{
+						cmdline_opt = &cmdline_options[cmd_ind];
+						sys_option = false;
+						break;
+					}
+
+				if (cmdline_opt == NULL)
 				{
-					ind++;
-					start_ptr = argv[ind];
-					vlevel = (unsigned int)strtol (start_ptr, &end_ptr, 0);
-					if (end_ptr == start_ptr || *end_ptr != '\0' ||
-						vlevel > MSG_DEBUG)
-						valid_options = false;
+					// System-dependent options
+					for (cmd_ind = 0; sys_cmdline_options[cmd_ind].long_name != NULL; cmd_ind++)
+						if (sys_cmdline_options[cmd_ind].short_name == short_cmd)
+						{
+							cmdline_opt = &sys_cmdline_options[cmd_ind];
+							sys_option = true;
+							break;
+						}
 				}
-				else
-					vlevel = MSG_DEBUG;
-				break;
 
-			default:
-				valid_options = false;
+			}
+
+			if (cmdline_opt != NULL)
+			{
+				qboolean has_param;
+
+				has_param = (param != NULL || (ind + 1 < argc &&
+							 argv[ind + 1][0] != '\0' && argv[ind + 1][0] != '-'));
+
+				// Check the number of parameters
+				if ((! cmdline_opt->need_param || has_param) &&
+					(cmdline_opt->accept_param || ! has_param))
+				{
+					if (has_param && param == NULL)
+					{
+						ind++;
+						param = argv[ind];
+					}
+
+					if (sys_option)
+						valid_options = Sys_Cmdline_Option (cmdline_opt, param);
+					else
+						valid_options = Cmdline_Option (cmdline_opt, param);
+
+					ind++;
+				}
+			}
 		}
-
-		ind++;
 	}
 
-	// If the command line is OK, we can set the verbose level now
-	if (valid_options)
-	{
-#ifndef WIN32
-		// If we run as a daemon, don't bother printing anything
-		if (daemon_mode)
-			max_msg_level = MSG_NOPRINT;
-		else
-#endif
-			max_msg_level = vlevel;
-	}
+	// If the command line is not OK, reset the verbose level
+	// to make sure the help text will be printed
+	if ( ! valid_options)
+		max_msg_level = MSG_NORMAL;
 
 	return valid_options;
+}
+
+
+/*
+====================
+PrintCmdlineOptionsHelp
+
+Print the help text for a pool of command line options
+====================
+*/
+static void PrintCmdlineOptionsHelp (const char* pool_name, const cmdlineopt_t* opts)
+{
+	if (opts[0].long_name != NULL)
+	{
+		unsigned int cmd_ind;
+
+		MsgPrint (MSG_ERROR,"Available %s options are:\n", pool_name);
+
+		for (cmd_ind = 0; opts[cmd_ind].long_name != NULL; cmd_ind++)
+		{
+			const cmdlineopt_t* crt_cmd = &opts[cmd_ind];
+			qboolean has_short_name = (crt_cmd->short_name != '\0');
+
+			// Short name, if any
+			if (has_short_name)
+			{
+				MsgPrint (MSG_ERROR, " * -%c", crt_cmd->short_name);
+				if (crt_cmd->help_syntax != NULL)
+					MsgPrint (MSG_ERROR, " %s", crt_cmd->help_syntax);
+				MsgPrint (MSG_ERROR, "\n");
+			}
+			
+			// Long name
+			MsgPrint (MSG_ERROR, " %c --%s",
+					  has_short_name ? ' ' : '*', crt_cmd->long_name);
+			if (crt_cmd->help_syntax != NULL)
+				MsgPrint (MSG_ERROR, " %s", crt_cmd->help_syntax);
+			MsgPrint (MSG_ERROR, "\n");
+
+			// Description
+			MsgPrint (MSG_ERROR, "   ");
+			MsgPrint (MSG_ERROR, crt_cmd->help_desc,
+					  crt_cmd->help_param[0], crt_cmd->help_param[1]);
+			MsgPrint (MSG_ERROR, "\n");
+
+			MsgPrint (MSG_ERROR, "\n");
+		}
+	}
 }
 
 
@@ -460,43 +571,42 @@ Print the command line syntax and the available options
 */
 static void PrintHelp (void)
 {
-	MsgPrint (MSG_ERROR,
-			  "Syntax: dpmaster [options]\n"
-			  "Available options are:\n"
-#ifndef WIN32
-			  "  -D                : run as a daemon\n"
-#endif
-			  "  -h                : this help\n"
-			  "  -H <hash_size>    : hash size in bits, up to %u (default: %u)\n"
-#ifndef WIN32
-			  "  -j <jail_path>    : use <jail_path> as chroot path (default: %s)\n"
-			  "                      only available when running with super-user privileges\n"
-#endif
-			  "  -l <address>      : listen on local address <address>\n"
-			  "  -m <a1>=<a2>      : map address <a1> to <a2> when sending it to clients\n"
-			  "                      addresses can contain a port number (ex: myaddr.net:1234)\n"
-			  "  -n <max_servers>  : maximum number of servers recorded (default: %u)\n"
-			  "  -N <max_per_addr> : maximum number of servers per address (default: %u)\n"
-			  "                      0 means there's no limit\n"
-			  "  -p <port_num>     : use port <port_num> (default: %u)\n"
-#ifndef WIN32
-			  "  -u <user>         : use <user> privileges (default: %s)\n"
-			  "                      only available when running with super-user privileges\n"
-#endif
-			  "  -v [verbose_lvl]  : verbose level, up to %u (default: %u; no value means max)\n"
-			  "\n",
-			  MAX_HASH_SIZE, DEFAULT_HASH_SIZE,
-#ifndef WIN32
-			  DEFAULT_JAIL_PATH,
-#endif
-			  DEFAULT_MAX_NB_SERVERS,
-			  DEFAULT_MAX_NB_SERVERS_PER_ADDRESS,
-			  DEFAULT_MASTER_PORT,
-#ifndef WIN32
-			  DEFAULT_LOW_PRIV_USER,
-#endif
-			  MSG_DEBUG, MSG_NORMAL);
+	MsgPrint (MSG_ERROR, "\nSyntax: dpmaster [options]\n\n");
+
+	PrintCmdlineOptionsHelp ("cross-platform", cmdline_options);
+	PrintCmdlineOptionsHelp ("platform-specific", sys_cmdline_options);
 }
+
+
+/*
+====================
+SignalHandler
+
+Handling of the signals sent to this processus
+====================
+*/
+#if defined(SIGUSR1) || defined(SIGUSR2)
+static void SignalHandler (int Signal)
+{
+	switch (Signal)
+	{
+#ifdef SIGUSR1
+		case SIGUSR1:
+			must_open_log = true;
+			break;
+#endif
+#ifdef SIGUSR2
+		case SIGUSR2:
+			must_close_log = true;
+			break;
+#endif
+		default:
+			// We aren't suppose to be here...
+			assert(false);
+			break;
+	}
+}
+#endif
 
 
 /*
@@ -508,50 +618,105 @@ System independent initializations, called AFTER the security initializations
 */
 static qboolean SecureInit (void)
 {
-	struct sockaddr_in address;
-
 	// Init the time and the random seed
 	crt_time = time (NULL);
 	srand ((unsigned int)crt_time);
 
-	// Initialize the server list and hash table
-	if (!Sv_Init ())
-		return false;
-
-	// Open the socket
-	sock = socket (PF_INET, SOCK_DGRAM, IPPROTO_UDP);
-	if (sock < 0)
+#ifdef SIGUSR1
+	if (signal (SIGUSR1, SignalHandler) == SIG_ERR)
 	{
-		MsgPrint (MSG_ERROR, "> ERROR: socket creation failed (%s)\n",
-				  strerror (errno));
+		MsgPrint (MSG_ERROR, "> ERROR: can't capture the SIGUSR1 signal\n");
 		return false;
 	}
-
-	// Bind it to the master port
-	memset (&address, 0, sizeof (address));
-	address.sin_family = AF_INET;
-	if (listen_name != NULL)
-	{
-		MsgPrint (MSG_NORMAL, "> Listening on address %s (%s)\n",
-				  listen_name, inet_ntoa (listen_addr));
-		address.sin_addr.s_addr = listen_addr.s_addr;
-	}
-	else
-		address.sin_addr.s_addr = htonl (INADDR_ANY);
-	address.sin_port = htons (master_port);
-	if (bind (sock, (struct sockaddr*)&address, sizeof (address)) != 0)
-	{
-		MsgPrint (MSG_ERROR, "> ERROR: socket binding failed (%s)\n",
-				  strerror (errno));
-#ifdef WIN32
-		closesocket (sock);
-#else
-		close (sock);
 #endif
+#ifdef SIGUSR2
+	if (signal (SIGUSR2, SignalHandler) == SIG_ERR)
+	{
+		MsgPrint (MSG_ERROR, "> ERROR: can't capture the SIGUSR2 signal\n");
 		return false;
 	}
-	MsgPrint (MSG_NORMAL, "> Listening on UDP port %hu\n",
-			  ntohs (address.sin_port));
+#endif
+
+	if (! Sys_CreateListenSockets ())
+		return false;
+	
+	// If there no socket to listen to for whatever reason, there's simply nothing to do
+	if (nb_sockets <= 0)
+	{
+		MsgPrint (MSG_ERROR, "> ERROR: there's no listening socket. There's nothing to do\n");
+		return false;
+	}
+
+	// Initialize the server list and hash table
+	if (! Sv_Init ())
+		return false;
+
+	return true;
+}
+
+
+/*
+====================
+CloseLogFile
+
+Close the log file
+====================
+*/
+static void CloseLogFile (const char* datestring)
+{
+	must_close_log = false;
+
+	if (log_file != NULL)
+	{
+		if (datestring == NULL)
+			datestring = BuildDateString();
+
+		fprintf (log_file, "\n> Closing log file (time: %s)\n", datestring);
+		fclose (log_file);
+		log_file = NULL;
+	}
+}
+
+
+/*
+====================
+UpdateLogStatus
+
+Enable / disable the logging, depending on the variable "must_open_log"
+====================
+*/
+static qboolean UpdateLogStatus (qboolean init)
+{
+	// If we need to (re)open the log file
+	if (must_open_log)
+	{
+		const char* datestring;
+
+		must_open_log = false;
+
+		datestring = BuildDateString ();
+		CloseLogFile (datestring);
+
+		log_file = fopen (log_filepath, "a");
+		if (log_file == NULL)
+			return false;
+
+		// Make the log stream fully buffered (instead of line buffered)
+		setvbuf (log_file, NULL, _IOFBF, 0);
+
+		fprintf (log_file, "> Opening log file (time: %s)\n", datestring);
+
+		// if we're opening the log after the initialization, print the list of servers
+		if (! init)
+			Sv_PrintServerList (MSG_WARNING);
+
+	}
+
+	// If we need to close the log file
+	if (must_close_log)
+	{
+		CloseLogFile (NULL);
+	}
 
 	return true;
 }
@@ -566,17 +731,12 @@ Main function
 */
 int main (int argc, const char* argv [])
 {
-	struct sockaddr_in address;
-	socklen_t addrlen;
-	int nb_bytes;
-	char packet [MAX_PACKET_SIZE + 1];  // "+ 1" because we append a '\0'
 	qboolean valid_options;
 
 	// Get the options from the command line
 	valid_options = ParseCommandLine (argc, argv);
 
 	MsgPrint (MSG_NORMAL,
-			  "\n"
 			  "dpmaster, a master server supporting the DarkPlaces\n"
 			  "and Quake III Arena master server protocols\n"
 			  "(version " VERSION ", compiled the " __DATE__ " at " __TIME__ ")\n");
@@ -588,75 +748,142 @@ int main (int argc, const char* argv [])
 		return EXIT_FAILURE;
 	}
 
+	// Start the log if necessary
+	if (! UpdateLogStatus (true))
+		return EXIT_FAILURE;
+
 	crt_time = time (NULL);
 	print_date = true;
 
 	// Initializations
-	if (!SysInit () || !UnsecureInit () || !SecInit () || !SecureInit ())
+	if (! Sys_UnsecureInit () || ! UnsecureInit () ||
+		! Sys_SecurityInit () ||
+		! Sys_SecureInit () || ! SecureInit ())
 		return EXIT_FAILURE;
 
 	// Until the end of times...
 	for (;;)
 	{
-		// Get the next valid message
-		addrlen = sizeof (address);
-		nb_bytes = recvfrom (sock, packet, sizeof (packet) - 1, 0,
-							 (struct sockaddr*)&address, &addrlen);
+		fd_set sock_set;
+		int max_sock;
+		size_t sock_ind;
+		int nb_sock_ready;
 
-		// Print the date once per received packet
-		print_date = true;
-
-		if (nb_bytes <= 0)
+		FD_ZERO(&sock_set);
+		max_sock = -1;
+		for (sock_ind = 0; sock_ind < nb_sockets; sock_ind++)
 		{
-			MsgPrint (MSG_WARNING,
-					  "> WARNING: \"recvfrom\" returned %d\n", nb_bytes);
-			continue;
+			int crt_sock = listen_sockets[sock_ind].socket;
+
+			FD_SET(crt_sock, &sock_set);
+			if (max_sock < crt_sock)
+				max_sock = crt_sock;
 		}
 
-		// If we may have to print something, rebuild the peer address buffer
-		if (max_msg_level != MSG_NOPRINT)
-			snprintf (peer_address, sizeof (peer_address), "%s:%hu",
-					  inet_ntoa (address.sin_addr), ntohs (address.sin_port));
+		// Flush the console and log file
+		if (log_file != NULL)
+			fflush (log_file);
+		if (daemon_state < DAEMON_STATE_EFFECTIVE)
+			fflush (stdout);
+
+		nb_sock_ready = select (max_sock + 1, &sock_set, NULL, NULL, NULL);
 
 		// Update the current time
 		crt_time = time (NULL);
 
-		// We print the packet contents if necessary
-		if (max_msg_level >= MSG_DEBUG)
-		{
-			MsgPrint (MSG_DEBUG, "> New packet received from %s: ",
-					  peer_address);
-			PrintPacket ((qbyte*)packet, nb_bytes);
-		}
+		print_date = false;
+		UpdateLogStatus (false);
 
-		// A few sanity checks
-		if (nb_bytes < MIN_PACKET_SIZE)
+		// Print the date once per select()
+		print_date = true;
+
+		if (nb_sock_ready <= 0)
 		{
-			MsgPrint (MSG_WARNING,
-					  "> WARNING: rejected packet from %s (size = %d bytes)\n",
-					  peer_address, nb_bytes);
-			continue;
-		}
-		if (*((unsigned int*)packet) != 0xFFFFFFFF)
-		{
-			MsgPrint (MSG_WARNING,
-					  "> WARNING: rejected packet from %s (invalid header)\n",
-					  peer_address);
-			continue;
-		}
-		if (! ntohs (address.sin_port))
-		{
-			MsgPrint (MSG_WARNING,
-					  "> WARNING: rejected packet from %s (source port = 0)\n",
-					  peer_address);
+			if (Sys_GetLastNetError() != NETERR_INTR)
+				MsgPrint (MSG_WARNING,
+						  "> WARNING: \"select\" returned %d\n", nb_sock_ready);
 			continue;
 		}
 
-		// Append a '\0' to make the parsing easier
-		packet[nb_bytes] = '\0';
+		for (sock_ind = 0;
+			 sock_ind < nb_sockets && nb_sock_ready > 0;
+			 sock_ind++)
+		{
+			struct sockaddr_storage address;
+			socklen_t addrlen;
+			int nb_bytes;
+			char packet [MAX_PACKET_SIZE_IN + 1];  // "+ 1" because we append a '\0'
+			int crt_sock = listen_sockets[sock_ind].socket;
 
-		// Call HandleMessage with the remaining contents
-		HandleMessage (packet + 4, nb_bytes - 4, &address);
+			if (! FD_ISSET (crt_sock, &sock_set))
+				continue;
+			nb_sock_ready--;
+
+			// Get the next valid message
+			addrlen = sizeof (address);
+			nb_bytes = recvfrom (crt_sock, packet, sizeof (packet) - 1, 0,
+								 (struct sockaddr*)&address, &addrlen);
+
+			if (nb_bytes <= 0)
+			{
+				MsgPrint (MSG_WARNING,
+						  "> WARNING: \"recvfrom\" returned %d\n", nb_bytes);
+				continue;
+			}
+
+			// If we may print something, rebuild the peer address string
+			if (max_msg_level > MSG_NOPRINT &&
+				(log_file != NULL || daemon_state < DAEMON_STATE_EFFECTIVE))
+			{
+				strncpy (peer_address, Sys_SockaddrToString(&address),
+						 sizeof (peer_address));
+				peer_address[sizeof (peer_address) - 1] = '\0';
+			}
+
+			// We print the packet contents if necessary
+			if (max_msg_level >= MSG_DEBUG)
+			{
+				MsgPrint (MSG_DEBUG, "> New packet received from %s: ",
+						  peer_address);
+				PrintPacket ((qbyte*)packet, nb_bytes);
+			}
+
+			// A few sanity checks
+			if (address.ss_family != AF_INET && address.ss_family != AF_INET6)
+			{
+				MsgPrint (MSG_WARNING,
+						  "> WARNING: rejected packet from %s (invalid address family: %hd)\n",
+						  peer_address, address.ss_family);
+				continue;
+			}
+			if (Sys_GetSockaddrPort(&address) == 0)
+			{
+				MsgPrint (MSG_WARNING,
+						  "> WARNING: rejected packet from %s (source port = 0)\n",
+						  peer_address);
+				continue;
+			}
+			if (nb_bytes < MIN_PACKET_SIZE_IN)
+			{
+				MsgPrint (MSG_WARNING,
+						  "> WARNING: rejected packet from %s (size = %d bytes)\n",
+						  peer_address, nb_bytes);
+				continue;
+			}
+			if (*((unsigned int*)packet) != 0xFFFFFFFF)
+			{
+				MsgPrint (MSG_WARNING,
+						  "> WARNING: rejected packet from %s (invalid header)\n",
+						  peer_address);
+				continue;
+			}
+
+			// Append a '\0' to make the parsing easier
+			packet[nb_bytes] = '\0';
+
+			// Call HandleMessage with the remaining contents
+			HandleMessage (packet + 4, nb_bytes - 4, &address, addrlen, crt_sock);
+		}
 	}
 }
 
@@ -665,34 +892,55 @@ int main (int argc, const char* argv [])
 
 /*
 ====================
+BuildDateString
+
+Return a string containing the current date and time
+====================
+*/
+const char* BuildDateString (void)
+{
+	static char datestring [80];
+
+	strftime (datestring, sizeof(datestring), "%Y-%m-%d %H:%M:%S %Z",
+			  localtime(&crt_time));
+	return datestring;
+}
+
+
+/*
+====================
 MsgPrint
 
 Print a message to screen, depending on its verbose level
 ====================
 */
-int MsgPrint (msg_level_t msg_level, const char* format, ...)
+void MsgPrint (msg_level_t msg_level, const char* format, ...)
 {
 	va_list args;
-	int result;
 
-	// If the message level is above the maximum level, don't print it
-	if (msg_level > max_msg_level)
-		return 0;
+	// If the message level is above the maximum level, or if we output
+	// neither to the console nor to a log file, there nothing to do
+	if (msg_level > max_msg_level ||
+		(log_file == NULL && daemon_state == DAEMON_STATE_EFFECTIVE))
+		return;
 
 	// Print a time stamp if necessary
 	if (print_date)
 	{
-		char datestring [80];
-		strftime (datestring, sizeof(datestring), "\n* %Y-%m-%d %H:%M:%S %Z\n", localtime(&crt_time));
-		printf ("%s", datestring);
+		const char* datestring = BuildDateString();
+
+		if (daemon_state < DAEMON_STATE_EFFECTIVE)
+			printf ("\n* %s\n", datestring);
+		if (log_file != NULL)
+			fprintf (log_file, "\n* %s\n", datestring);
+
 		print_date = false;
 	}
 
 	va_start (args, format);
-	result = vprintf (format, args);
+	if (daemon_state < DAEMON_STATE_EFFECTIVE)
+		vprintf (format, args);
+	if (log_file != NULL)
+		vfprintf (log_file, format, args);
 	va_end (args);
-
-	fflush (stdout);
-
-	return result;
 }

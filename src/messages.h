@@ -29,7 +29,9 @@
 
 // Parse a packet to figure out what to do with it
 void HandleMessage (const char* msg, size_t length,
-					const struct sockaddr_in* address);
+					const struct sockaddr_storage* address,
+					socklen_t addrlen,
+					int recv_socket);
 
 
 #endif  // #ifndef _MESSAGES_H_

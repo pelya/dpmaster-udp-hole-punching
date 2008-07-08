@@ -22,6 +22,7 @@
 
 
 #include "common.h"
+#include "system.h"
 #include "servers.h"
 
 
@@ -29,9 +30,6 @@
 
 // Timeout for a newly added server (in secondes)
 #define TIMEOUT_HEARTBEAT	2
-
-// Address hash bitmask
-#define HASH_BITMASK (hash_table_size - 1)
 
 
 // ---------- Variables ---------- //
@@ -42,8 +40,9 @@
 static server_t* servers = NULL;
 static unsigned int max_nb_servers = DEFAULT_MAX_NB_SERVERS;
 static unsigned int nb_servers = 0;
-static server_t** hash_table = NULL;
-static size_t hash_table_size = (1 << DEFAULT_HASH_SIZE);
+static server_t** hash_table_ipv4 = NULL;
+static server_t** hash_table_ipv6 = NULL;
+static size_t hash_size = DEFAULT_HASH_SIZE;
 
 static unsigned int max_per_address = DEFAULT_MAX_NB_SERVERS_PER_ADDRESS;
 
@@ -67,14 +66,49 @@ Sv_AddressHash
 Compute the hash of a server address
 ====================
 */
-static unsigned int Sv_AddressHash (const struct sockaddr_in* address)
+static unsigned int Sv_AddressHash (const struct sockaddr_storage* address)
 {
-	qbyte* addr;
-	qbyte hash;
+	unsigned int hash;
 
-	addr = (qbyte*)&address->sin_addr.s_addr;
-	hash = addr[0] ^ addr[1] ^ addr[2] ^ addr[3];
-	return hash & HASH_BITMASK;
+	if (address->ss_family == AF_INET6)
+	{
+		const struct sockaddr_in6* addr6;
+		const unsigned int* ipv6_ptr;
+
+		addr6 = (const struct sockaddr_in6*)address;
+		ipv6_ptr = (const unsigned int*)&addr6->sin6_addr.s6_addr;
+		hash = ipv6_ptr[0] ^ ipv6_ptr[1] ^ ipv6_ptr[2] ^ ipv6_ptr[3];
+	}
+	else
+	{
+		const struct sockaddr_in* addr4;
+		const unsigned int* ipv4_ptr;
+
+		assert(address->ss_family == AF_INET);
+
+		addr4 = (const struct sockaddr_in*)address;
+		ipv4_ptr = (const unsigned int*)&addr4->sin_addr.s_addr;
+		hash = ipv4_ptr[0];
+	}
+
+	// Merge all the bits in the first 16 bits
+	hash = (hash & 0xFFFF) ^ (hash >> 16);
+
+	// Merge the bits to try to not lose too many of them (3 max here)
+	if (hash_size >= 8)
+	{
+		hash = (hash >> hash_size) ^ hash;
+	}
+	else if (hash_size > 4)
+	{
+		hash = (hash >> 8) ^ hash;
+	}
+	else  // if (hash_size <= 4)
+	{
+		hash = (hash >> 12) ^ (hash >> 8) ^ (hash >>  4) ^ hash;
+	}
+
+	return hash & ((1 << hash_size) - 1);
 }
 
 
@@ -85,7 +119,7 @@ Sv_AddToHashTable
 Add a server to the hash table
 ====================
 */
-static void Sv_AddToHashTable (server_t* sv, unsigned int hash)
+static void Sv_AddToHashTable (server_t* sv, unsigned int hash, server_t** hash_table)
 {
 	server_t** hash_entry_ptr;
 
@@ -145,11 +179,39 @@ static void Sv_Remove (server_t* sv)
 
 	nb_servers--;
 	MsgPrint (MSG_NORMAL,
-	          "> %s:%hu timed out; %u server(s) currently registered\n",
-	          inet_ntoa (sv->address.sin_addr), ntohs (sv->address.sin_port),
-			  nb_servers);
+	          "> %s timed out; %u server(s) currently registered\n",
+	          Sys_SockaddrToString(&sv->address), nb_servers);
 
 	assert (last_used_slot >= (int)nb_servers - 1);
+}
+
+
+/*
+====================
+Sv_AllocateHashTable
+
+Allocate a hash table
+====================
+*/
+static server_t** Sv_AllocateHashTable (size_t table_size, const char* proto_name)
+{
+	server_t** result;
+	size_t array_size = table_size * sizeof (server_t*);
+
+	result = malloc (array_size);
+	if (result != NULL)
+	{
+		memset (result, 0, array_size);
+		MsgPrint (MSG_NORMAL,
+				  "> %s hash table allocated (%u entries)\n",
+				  proto_name, table_size);
+	}
+	else
+		MsgPrint (MSG_ERROR,
+				  "> ERROR: can't allocate the %s hash table (%s)\n",
+				  proto_name, strerror (errno));
+	
+	return result;
 }
 
 
@@ -184,15 +246,95 @@ static qboolean Sv_IsActive (unsigned int sv_ind)
 
 /*
 ====================
+Sv_SameIPv4Addr
+
+Compare 2 IPv4 addresses and return "true" if they're equal
+====================
+*/
+static qboolean Sv_SameIPv4Addr (const struct sockaddr_storage* addr1,
+								 const struct sockaddr_storage* addr2,
+								 qboolean* same_ip_address)
+{
+	const struct sockaddr_in *addr1_in, *addr2_in;
+
+	addr1_in = (const struct sockaddr_in*)addr1;
+	addr2_in = (const struct sockaddr_in*)addr2;
+
+	// Same address?
+	if (addr1_in->sin_addr.s_addr == addr2_in->sin_addr.s_addr)
+	{
+		*same_ip_address = true;
+
+		// Same port?
+		if (addr1_in->sin_port == addr2_in->sin_port)
+			return true;
+	}
+	else
+		*same_ip_address = false;
+
+	return false;
+}
+
+
+/*
+====================
+Sv_SameIPv6Addr
+
+Compare 2 IPv6 addresses and return "true" if they're equal
+====================
+*/
+static qboolean Sv_SameIPv6Addr (const struct sockaddr_storage* addr1,
+								 const struct sockaddr_storage* addr2,
+								 qboolean* same_ip_address)
+{
+	const struct sockaddr_in6 *addr1_in6, *addr2_in6;
+
+	addr1_in6 = (const struct sockaddr_in6*)addr1;
+	addr2_in6 = (const struct sockaddr_in6*)addr2;
+
+	// Same address?
+	if (memcmp (&addr1_in6->sin6_addr.s6_addr, &addr2_in6->sin6_addr.s6_addr,
+				sizeof(addr1_in6->sin6_addr.s6_addr)) == 0)
+	{
+		*same_ip_address = true;
+
+		// Same port?
+		if (addr1_in6->sin6_port == addr2_in6->sin6_port)
+			return true;
+	}
+	else
+		*same_ip_address = false;
+
+	return false;
+}
+
+
+/*
+====================
 Sv_GetByAddr_Internal
 
 Search for a particular server in the list
 ====================
 */
-static server_t* Sv_GetByAddr_Internal (const struct sockaddr_in* address, unsigned int* same_address_found)
+static server_t* Sv_GetByAddr_Internal (const struct sockaddr_storage* address, unsigned int* same_address_found)
 {
 	unsigned int hash = Sv_AddressHash (address);
-	server_t* sv = hash_table[hash];
+	server_t** hash_table;
+	server_t* sv;
+	qboolean (*IsSameAddress) (const struct sockaddr_storage* addr1, const struct sockaddr_storage* addr2, qboolean* same_address);
+	
+	if (address->ss_family == AF_INET6)
+	{
+		hash_table = hash_table_ipv6;
+		IsSameAddress = Sv_SameIPv6Addr;
+	}
+	else
+	{
+		assert (address->ss_family == AF_INET);
+		hash_table = hash_table_ipv4;
+		IsSameAddress = Sv_SameIPv4Addr;
+	}
+	sv = hash_table[hash];
 
 	*same_address_found = 0;
 	while (sv != NULL)
@@ -202,20 +344,21 @@ static server_t* Sv_GetByAddr_Internal (const struct sockaddr_in* address, unsig
 		if (Sv_IsActive(sv - servers))
 		{
 			// Same address?
-			if (sv->address.sin_addr.s_addr == address->sin_addr.s_addr)
-			{
+			qboolean same_ip_address;
+			qboolean same_address;
+
+			same_ip_address = false;
+			same_address = IsSameAddress (&sv->address, address, &same_ip_address);
+			if (same_ip_address)
 				*same_address_found += 1;
+			if (same_address)
+			{
+				// Move it on top of the list (it's useful because heartbeats
+				// are almost always followed by infoResponses)
+				Sv_RemoveFromHashTable (sv);
+				Sv_AddToHashTable (sv, hash, hash_table);
 
-				// Found?
-				if (sv->address.sin_port == address->sin_port)
-				{
-					// Move it on top of the list (it's useful because heartbeats
-					// are almost always followed by infoResponses)
-					Sv_RemoveFromHashTable (sv);
-					Sv_AddToHashTable (sv, hash);
-
-					return sv;
-				}
+				return sv;
 			}
 		}
 		
@@ -455,10 +598,11 @@ Set a new hash size value
 qboolean Sv_SetHashSize (unsigned int size)
 {
 	// Too late? Too small or too big?
-	if (hash_table != NULL || size <= 0 || size > MAX_HASH_SIZE)
+	if (hash_table_ipv4 != NULL || hash_table_ipv6 != NULL ||
+		size < 0 || size > MAX_HASH_SIZE)
 		return false;
 
-	hash_table_size = 1 << size;
+	hash_size = size;
 	return true;
 }
 
@@ -508,6 +652,7 @@ Initialize the server list and hash table
 */
 qboolean Sv_Init (void)
 {
+	unsigned int hash_table_size;
 	size_t array_size;
 
 	// Allocate "servers" and clean it
@@ -527,19 +672,20 @@ qboolean Sv_Init (void)
 	else
 		MsgPrint (MSG_NORMAL, "%u)\n", max_per_address);
 
-	// Allocate "hash_table" and clean it
-	array_size = hash_table_size * sizeof (hash_table[0]);
-	hash_table = malloc (array_size);
-	if (!hash_table)
+	// Allocate the hash tables and clean them
+	hash_table_size = (1 << hash_size);
+	if (Sys_IsListeningOn (AF_INET))
 	{
-		MsgPrint (MSG_ERROR, "> ERROR: can't allocate the hash table (%s)\n",
-				  strerror (errno));
-		free (servers);
-		return false;
+		hash_table_ipv4 = Sv_AllocateHashTable (hash_table_size, "IPv4");
+		if (hash_table_ipv4 == NULL)
+			return false;
 	}
-	memset (hash_table, 0, array_size);
-	MsgPrint (MSG_NORMAL,
-			  "> Hash table allocated (%u entries)\n", hash_table_size);
+	if (Sys_IsListeningOn (AF_INET6))
+	{
+		hash_table_ipv6 = Sv_AllocateHashTable (hash_table_size, "IPv6");
+		if (hash_table_ipv6 == NULL)
+			return false;
+	}
 
 	return true;
 }
@@ -552,17 +698,21 @@ Sv_GetByAddr
 Search for a particular server in the list; add it if necessary
 ====================
 */
-server_t* Sv_GetByAddr (const struct sockaddr_in* address, qboolean add_it)
+server_t* Sv_GetByAddr (const struct sockaddr_storage* address, socklen_t addrlen, qboolean add_it)
 {
 	unsigned int nb_same_address = 0;
 	server_t *sv;
 	const addrmap_t* addrmap;
 	unsigned int hash;
 	unsigned int ind;
+	server_t** hash_table;
 
 	sv = Sv_GetByAddr_Internal (address, &nb_same_address);
 	if (sv != NULL)
+	{
+		assert (addrlen == sv->addrlen);
 		return sv;
+	}
 
 	if (! add_it)
 		return NULL;
@@ -577,13 +727,31 @@ server_t* Sv_GetByAddr (const struct sockaddr_in* address, qboolean add_it)
 	}
 
 	// Allow servers on a loopback address ONLY if a mapping is defined for them
-	addrmap = Sv_GetAddrmap (address);
-	if ((ntohl (address->sin_addr.s_addr) >> 24) == 127 && addrmap == NULL)
+	if (address->ss_family == AF_INET)
 	{
-		MsgPrint (MSG_WARNING,
-				  "> WARNING: server %s isn't allowed (loopback address without address mapping)\n",
-				  peer_address);
-		return NULL;
+		const struct sockaddr_in* addr_in = (const struct sockaddr_in*)address;
+		addrmap = Sv_GetAddrmap (addr_in);
+		if ((ntohl (addr_in->sin_addr.s_addr) >> 24) == 127 && addrmap == NULL)
+		{
+			MsgPrint (MSG_WARNING,
+					  "> WARNING: server %s isn't allowed (loopback address without address mapping)\n",
+					  peer_address);
+			return NULL;
+		}
+	}
+	else
+	{
+		const struct sockaddr_in6 *addr_in6 = (const struct sockaddr_in6*)address;
+		if (memcmp (&addr_in6->sin6_addr.s6_addr, &in6addr_loopback.s6_addr,
+					sizeof(addr_in6->sin6_addr.s6_addr)) == 0)
+		{
+			MsgPrint (MSG_WARNING,
+					  "> WARNING: server %s isn't allowed (IPv6 loopback address)\n",
+					  peer_address);
+			return NULL;
+		}
+
+		addrmap = NULL;
 	}
 
 	// If the list is full, check the entries to see if we can free a slot
@@ -622,11 +790,16 @@ server_t* Sv_GetByAddr (const struct sockaddr_in* address, qboolean add_it)
 	// Initialize the structure
 	memset (sv, 0, sizeof (*sv));
 	memcpy (&sv->address, address, sizeof (sv->address));
+	sv->addrlen = addrlen;
 	sv->addrmap = addrmap;
 
 	// Add it to the list it belongs to
 	hash = Sv_AddressHash (address);
-	Sv_AddToHashTable (sv, hash);
+	if (address->ss_family == AF_INET6)
+		hash_table = hash_table_ipv6;
+	else
+		hash_table = hash_table_ipv4;
+	Sv_AddToHashTable (sv, hash, hash_table);
 
 	sv->state = sv_state_uninitialized;
 	sv->timeout = crt_time + TIMEOUT_HEARTBEAT;
@@ -638,7 +811,7 @@ server_t* Sv_GetByAddr (const struct sockaddr_in* address, qboolean add_it)
 			  peer_address, nb_servers, nb_same_address + 1);
 	MsgPrint (MSG_DEBUG,
 			  "  - index: %u\n"
-			  "  - hash: 0x%02X\n",
+			  "  - hash: 0x%04X\n",
 			  (unsigned int)(sv - servers), hash);
 
 	return sv;
@@ -680,6 +853,67 @@ server_t* Sv_GetNext (void)
 	}
 
 	return NULL;
+}
+
+
+/*
+====================
+Sv_PrintServerList
+
+Print the list of servers to the output
+====================
+*/
+void Sv_PrintServerList (msg_level_t msg_level)
+{
+	int ind;
+
+	MsgPrint (msg_level, "\n> %u servers registered (time: %lu):\n",
+			  nb_servers, (unsigned long)crt_time);
+
+	for (ind = 0; ind <= last_used_slot; ind++)
+		if (Sv_IsActive(ind))
+		{
+			const server_t* sv = &servers[ind];
+			const char* state_string;
+
+			MsgPrint (msg_level, " * %s", Sys_SockaddrToString (&sv->address));
+			if (sv->addrmap != NULL)
+				MsgPrint (msg_level, ", mapped to %s", sv->addrmap->to_string);
+
+			assert(sv->state > sv_state_unused_slot);
+			assert(sv->state <= sv_state_full);
+			switch (sv->state)
+			{
+				case sv_state_unused_slot:
+					state_string = "unused";
+					break;
+				case sv_state_uninitialized:
+					state_string = "not initialized";
+					break;
+				case sv_state_empty:
+					state_string = "empty";
+					break;
+				case sv_state_occupied:
+					state_string = "occupied";
+					break;
+				case sv_state_full:
+					state_string = "full";
+					break;
+				default:
+					state_string = "UNKNOWN";
+					break;
+			}
+
+			MsgPrint (msg_level,
+					  " (timeout: %lu)\n"
+					  "\tgame: \"%s\" (protocol: %d)\n"
+					  "\tstate: %s\n"
+					  "\tchallenge: \"%s\" (timeout: %lu)\n",
+					  (unsigned long)sv->timeout,
+					  sv->gamename, sv->protocol,
+					  state_string,
+					  sv->challenge, (unsigned long)sv->challenge_timeout);
+		}
 }
 
 
