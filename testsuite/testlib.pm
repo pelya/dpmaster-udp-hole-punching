@@ -8,24 +8,16 @@ use Fcntl;
 use Getopt::Long;
 use POSIX qw(:sys_wait_h :stdlib_h);
 use Socket;
+use Socket6;
 use Time::HiRes qw(time sleep);
-
-# IPv6 support, if possible
-my $ipv6Supported = 0;
-eval "use Socket6";
-unless ($@) {
-	use Socket6;
-	$ipv6Supported = 1;
-}
 
 
 # Constants - dpmaster
 use constant DEFAULT_DPMASTER_PATH => "../src/dpmaster";
-use constant MAPPED_ADDRESS => "172.16.12.34";
-use constant DEFAULT_DPMASTER_OPTIONS => "-v -m 127.0.0.1=" . MAPPED_ADDRESS;
+use constant DEFAULT_DPMASTER_OPTIONS => "--allow-loopback";
+use constant IPV4_ADDRESS => "127.0.0.1";
+use constant IPV6_ADDRESS => "::1";
 use constant DEFAULT_DPMASTER_PORT => 27950;
-use constant IPV6_ADDRESS => "fe80::1";
-use constant IPV6_ADDRESS_WITH_INTERFACE => IPV6_ADDRESS . "%lo0";
 
 # Constants - game properties
 use constant DEFAULT_GAMENAME => "DpmasterTest";
@@ -44,7 +36,7 @@ use constant {
 # Global variables - dpmaster
 my $dpmasterPid = undef;
 my %dpmasterProperties = (
-	cmdlineoptions => "",
+	cmdlineoptions => DEFAULT_DPMASTER_OPTIONS,
 	port => DEFAULT_DPMASTER_PORT,
 	exitvalue => undef
 );
@@ -84,6 +76,7 @@ BEGIN {
 		&Client_SetGameProperty
 		&Client_SetProperty
 
+		&Master_GetProperty
 		&Master_SetProperty
 
 		&Server_GetGameProperty
@@ -132,20 +125,18 @@ sub Common_CreateSocket {
 	my $proto = getprotobyname("udp");
 	my ($family, $addr, $dpmasterAddr);
 	if ($useIPv6) {
-		die "IPv6 support not enabled\n" unless ($ipv6Supported);
-
 		# Build the address for connect()
-		my @res = getaddrinfo (IPV6_ADDRESS_WITH_INTERFACE, $dpmasterProperties{port}, AF_INET6, SOCK_DGRAM, $proto, AI_NUMERICHOST);
+		my @res = getaddrinfo (IPV6_ADDRESS, $dpmasterProperties{port}, AF_INET6, SOCK_DGRAM, $proto, AI_NUMERICHOST);
 		if (scalar @res < 5) {
-			die "Can't resolve address [" . IPV6_ADDRESS_WITH_INTERFACE . "]:$port";
+			die "Can't resolve address [" . IPV6_ADDRESS . "]:$port";
 		}
 		my ($sockType, $canonName);
         ($family, $sockType, $proto, $dpmasterAddr, $canonName, @res) = @res;
 		
 		# Build the address for bind()
-		@res = getaddrinfo (IPV6_ADDRESS_WITH_INTERFACE, $port, AF_INET6, SOCK_DGRAM, $proto, AI_NUMERICHOST | AI_PASSIVE);
+		@res = getaddrinfo (IPV6_ADDRESS, $port, AF_INET6, SOCK_DGRAM, $proto, AI_NUMERICHOST | AI_PASSIVE);
 		if (scalar @res < 5) {
-			die "Can't resolve address [" . IPV6_ADDRESS_WITH_INTERFACE . "]:$port";
+			die "Can't resolve address [" . IPV6_ADDRESS . "]:$port";
 		}
         ($family, $sockType, $proto, $addr, $canonName, @res) = @res;
 	}
@@ -227,7 +218,7 @@ sub Client_CheckServerList {
 		# Skip this server if it shouldn't be registered
 		next if ($serverRef->{cannotBeRegistered});
 
-		my $fullAddress = ($svUseIPv6 ? "[" . IPV6_ADDRESS . "]" : MAPPED_ADDRESS);
+		my $fullAddress = ($svUseIPv6 ? "[" . IPV6_ADDRESS . "]" : IPV4_ADDRESS);
 		$fullAddress .= ":" . $serverRef->{port};
 		
 		my $found = 0;
@@ -286,8 +277,6 @@ sub Client_HandleGetServersReponse {
 			Common_VerbosePrint ("    * Found a server at $fullAddress\n");
 		}
 		elsif ($addrList =~ s/^\/(.{16})(.{2})([\\\/].*|)$/$3/) {
-			die "IPv6 support not enabled\n" unless ($ipv6Supported);
-
 			my $address = $1;
 			my $port = unpack ("n", $2);
 
@@ -368,7 +357,8 @@ sub Client_Run {
 		# Wait for all the servers to be registered to ask for the server list
 		my $allServersRegistered = 1;
 		foreach my $serverRef (@serverList) {
-			if ($serverRef->{state} ne "Done") {
+			if ($serverRef->{state} ne "Done" and
+				not $serverRef->{cannotBeRegistered}) {
 				$allServersRegistered = 0;
 				last;
 			}
@@ -505,6 +495,16 @@ sub Master_Run {
 
 	
 #***************************************************************************
+# Master_GetProperty
+#***************************************************************************
+sub Master_GetProperty {
+	my $propertyName = shift;
+	
+	return $dpmasterProperties{$propertyName};
+}
+
+	
+#***************************************************************************
 # Master_SetProperty
 #***************************************************************************
 sub Master_SetProperty {
@@ -519,14 +519,17 @@ sub Master_SetProperty {
 # Master_Start
 #***************************************************************************
 sub Master_Start {
-	my $dpmasterPath;
+	my $dpmasterCmdLine;
 	if (scalar @ARGV > 0) {
-		$dpmasterPath = $ARGV[0];
+		$dpmasterCmdLine = $ARGV[0];
 	}
 	else {
-		$dpmasterPath = DEFAULT_DPMASTER_PATH;
+		$dpmasterCmdLine = DEFAULT_DPMASTER_PATH;
 	}
-	my $dpmasterCmdLine = "$dpmasterPath " . DEFAULT_DPMASTER_OPTIONS;
+
+	if ($optDpmasterOutput) {
+		$dpmasterCmdLine .= " -v";
+	}
 	
 	my $additionalOptions = $dpmasterProperties{cmdlineoptions};
 	if (defined ($additionalOptions) and $additionalOptions ne "") {
@@ -835,9 +838,6 @@ sub Test_Run {
 		$testTitle = "Test " . $testNumber;
 	}
 	print ("    * " . $testTitle . "\n");
-
-	my $ipv6Status = ($ipv6Supported ? "enabled" : "disabled");
-	Common_VerbosePrint ("IPv6 support " . $ipv6Status . "\n");
 
 	@failureDiagnostic = ();
 	$currentTime = time();

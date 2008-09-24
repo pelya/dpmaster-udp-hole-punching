@@ -536,6 +536,13 @@ static void HandleInfoResponse (server_t* server, const char* msg)
 				  peer_address);
 		return;
 	}
+	else if (strchr (value, ' ') != NULL)
+	{
+		MsgPrint (MSG_ERROR,
+				  "> ERROR: invalid infoResponse from %s (game name contains whitespaces)\n",
+				  peer_address);
+		return;
+	}
 
 	// If the gamename has changed
 	if (strcmp (server->gamename, value) != 0)

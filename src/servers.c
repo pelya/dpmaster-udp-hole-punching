@@ -32,7 +32,7 @@
 #define TIMEOUT_HEARTBEAT	2
 
 
-// ---------- Variables ---------- //
+// ---------- Private variables ---------- //
 
 // All server structures are allocated in one block in the "servers" array.
 // Each used slot is also part of a linked list in "hash_table". A simple
@@ -55,6 +55,12 @@ static int crt_server_ind = -1;
 
 // List of address mappings. They are sorted by "from" field (IP, then port)
 static addrmap_t* addrmaps = NULL;
+
+
+// ---------- Public variables ---------- //
+
+// Are servers talking from a loopback interface allowed?
+qboolean allow_loopback = false;
 
 
 // ---------- Private functions ---------- //
@@ -702,7 +708,7 @@ server_t* Sv_GetByAddr (const struct sockaddr_storage* address, socklen_t addrle
 {
 	unsigned int nb_same_address = 0;
 	server_t *sv;
-	const addrmap_t* addrmap;
+	const addrmap_t* addrmap = NULL;
 	unsigned int hash;
 	unsigned int ind;
 	server_t** hash_table;
@@ -726,33 +732,38 @@ server_t* Sv_GetByAddr (const struct sockaddr_storage* address, socklen_t addrle
 		return NULL;
 	}
 
-	// Allow servers on a loopback address ONLY if a mapping is defined for them
-	if (address->ss_family == AF_INET)
+	if (! allow_loopback)
 	{
-		const struct sockaddr_in* addr_in = (const struct sockaddr_in*)address;
-		addrmap = Sv_GetAddrmap (addr_in);
-		if ((ntohl (addr_in->sin_addr.s_addr) >> 24) == 127 && addrmap == NULL)
+		// IPv4 servers on a loopback address are allowed if a mapping is defined for them
+		if (address->ss_family == AF_INET)
 		{
-			MsgPrint (MSG_WARNING,
-					  "> WARNING: server %s isn't allowed (loopback address without address mapping)\n",
-					  peer_address);
-			return NULL;
+			const struct sockaddr_in* addr_in = (const struct sockaddr_in*)address;
+			addrmap = Sv_GetAddrmap (addr_in);
+			if ((ntohl (addr_in->sin_addr.s_addr) >> 24) == 127 &&
+				addrmap == NULL)
+			{
+				MsgPrint (MSG_WARNING,
+						  "> WARNING: server %s isn't allowed (loopback address without address mapping)\n",
+						  peer_address);
+				return NULL;
+			}
 		}
-	}
-	else
-	{
-		const struct sockaddr_in6 *addr_in6 = (const struct sockaddr_in6*)address;
-		if (memcmp (&addr_in6->sin6_addr.s6_addr, &in6addr_loopback.s6_addr,
-					sizeof(addr_in6->sin6_addr.s6_addr)) == 0)
+		else
 		{
-			MsgPrint (MSG_WARNING,
-					  "> WARNING: server %s isn't allowed (IPv6 loopback address)\n",
-					  peer_address);
-			return NULL;
-		}
+			assert (address->ss_family == AF_INET6);
 
-		addrmap = NULL;
+			const struct sockaddr_in6 *addr_in6 = (const struct sockaddr_in6*)address;
+			if (memcmp (&addr_in6->sin6_addr.s6_addr, &in6addr_loopback.s6_addr,
+						sizeof(addr_in6->sin6_addr.s6_addr)) == 0)
+			{
+				MsgPrint (MSG_WARNING,
+						  "> WARNING: server %s isn't allowed (IPv6 loopback address)\n",
+						  peer_address);
+				return NULL;
+			}
+		}
 	}
+
 
 	// If the list is full, check the entries to see if we can free a slot
 	if (nb_servers == max_nb_servers)
@@ -762,7 +773,12 @@ server_t* Sv_GetByAddr (const struct sockaddr_storage* address, socklen_t addrle
 
 		Sv_CheckTimeouts ();
 		if (nb_servers == max_nb_servers)
+		{
+			MsgPrint (MSG_WARNING,
+					  "> WARNING: can't add server %s (server list is full)\n",
+					  peer_address);
 			return NULL;
+		}
 	}
 
 	// Use the first free entry in "servers"

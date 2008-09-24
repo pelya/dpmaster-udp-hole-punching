@@ -219,7 +219,7 @@ IPv6 addressing has a few tricky aspects, and zone indices are one of them. If
 you encounter problems when configuring dpmaster for listening on a link-local
 IPv6 address, I recommend that you read the following paragraph on Wikipedia,
 to make sure you use the correct syntax for your link-local address:
-http://en.wikipedia.org/wiki/IPv6#Zone_indices
+http://en.wikipedia.org/wiki/IPv6#Address_scopes_and_zone_indices
 
 
 * CHANGES:
@@ -232,7 +232,9 @@ http://en.wikipedia.org/wiki/IPv6#Zone_indices
         Long format for all command line options (see SYNTAX & OPTIONS above)
         The new hash function supports up to 16-bit hashes
         0 is no longer an invalid hash table size
+        New debugging option "--allow-loopback", used by the test suite
         Various updates and improvements in the documentation
+        The test suite now requires the Socket6 Perl module
 
     - version 1.7:
         There's now a maximum number of servers per IP address (default: 32)

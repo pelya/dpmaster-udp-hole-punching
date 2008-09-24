@@ -84,6 +84,12 @@ typedef struct server_s
 } server_t;
 
 
+// ---------- Public variables ---------- //
+
+// Are servers talking from a loopback interface allowed?
+extern qboolean allow_loopback;
+
+
 // ---------- Public functions (servers) ---------- //
 
 // Will simply return "false" if called after Sv_Init

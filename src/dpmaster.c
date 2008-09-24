@@ -47,9 +47,18 @@ static qboolean print_date = false;
 static const cmdlineopt_t cmdline_options [] =
 {
 	{
+		"allow-loopback",
+		NULL,
+		"Accept servers on loopback interfaces (for debugging purposes only)",
+		{ 0, 0 },
+		'\0',
+		false,
+		false
+	},
+	{
 		"help",
 		NULL,
-		"this help text",
+		"This help text",
 		{ 0, 0 },
 		'h',
 		false,
@@ -58,7 +67,7 @@ static const cmdlineopt_t cmdline_options [] =
 	{
 		"hash-size",
 		"<hash_size>",
-		"hash size in bits, up to %d (default: %d)",
+		"Hash size in bits, up to %d (default: %d)",
 		{ MAX_HASH_SIZE, DEFAULT_HASH_SIZE },
 		'H',
 		true,
@@ -67,7 +76,7 @@ static const cmdlineopt_t cmdline_options [] =
 	{
 		"listen",
 		"<address>",
-		"listen on local address <address>\n"
+		"Listen on local address <address>\n"
 		"   You can listen on up to %d addresses",
 		{ MAX_LISTEN_SOCKETS, 0 },
 		'l',
@@ -77,7 +86,7 @@ static const cmdlineopt_t cmdline_options [] =
 	{
 		"log",
 		NULL,
-		"enable the logging to disk",
+		"Enable the logging to disk",
 		{ 0, 0 },
 		'L',
 		false,
@@ -86,7 +95,7 @@ static const cmdlineopt_t cmdline_options [] =
 	{
 		"log-file",
 		"<file_path>",
-		"use <file_path> as the log file (default: " DEFAULT_LOG_FILE ")",
+		"Use <file_path> as the log file (default: " DEFAULT_LOG_FILE ")",
 		{ 0, 0 },
 		'\0',
 		true,
@@ -95,8 +104,8 @@ static const cmdlineopt_t cmdline_options [] =
 	{
 		"map",
 		"<a1>=<a2>",
-		"map address <a1> to <a2> when sending it to clients\n"
-		"   addresses can contain a port number (ex: myaddr.net:1234)",
+		"Map address <a1> to <a2> when sending it to clients\n"
+		"   Addresses can contain a port number (ex: myaddr.net:1234)",
 		{ 0, 0 },
 		'm',
 		true,
@@ -105,7 +114,7 @@ static const cmdlineopt_t cmdline_options [] =
 	{
 		"max-servers",
 		"<max_servers>",
-		"maximum number of servers recorded (default: %d)",
+		"Maximum number of servers recorded (default: %d)",
 		{ DEFAULT_MAX_NB_SERVERS, 0 },
 		'n',
 		true,
@@ -114,7 +123,7 @@ static const cmdlineopt_t cmdline_options [] =
 	{
 		"max-servers-per-addr",
 		"<max_per_addr>",
-		"maximum number of servers per address (default: %d)\n"
+		"Maximum number of servers per address (default: %d)\n"
 		"   0 means there's no limit",
 		{ DEFAULT_MAX_NB_SERVERS_PER_ADDRESS, 0 },
 		'N',
@@ -124,7 +133,7 @@ static const cmdlineopt_t cmdline_options [] =
 	{
 		"port",
 		"<port_num>",
-		"default network port (default value: %d)",
+		"Default network port (default value: %d)",
 		{ DEFAULT_MASTER_PORT, 0 },
 		'p',
 		true,
@@ -133,7 +142,7 @@ static const cmdlineopt_t cmdline_options [] =
 	{
 		"verbose",
 		"[verbose_lvl]",
-		"verbose level, up to %d (default: %d; no value means max)",
+		"Verbose level, up to %d (default: %d; no value means max)",
 		{ MSG_DEBUG, MSG_NORMAL },
 		'v',
 		true,
@@ -253,8 +262,12 @@ static qboolean Cmdline_Option (const cmdlineopt_t* opt, const char* param)
 
 	opt_name = opt->long_name;
 
+	// Are servers on loopback interfaces allowed?
+	if (strcmp (opt_name, "allow-loopback") == 0)
+		allow_loopback = true;
+
 	// Help
-	if (strcmp (opt_name, "help") == 0)
+	else if (strcmp (opt_name, "help") == 0)
 		return false;
 
 	// Hash size

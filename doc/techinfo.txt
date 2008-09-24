@@ -125,7 +125,7 @@ precisely the key names used by Q3A in the infostring.
             allowed on the server; must not be 0), "protocol" (the protocol
             number) and "clients" (the current number of clients on the
             server) must also be present. Except for Q3A, "gamename" (the game
-            name) is mandatory too.
+            name) is mandatory too, and its value must not contain whitespaces.
 
     4) getservers:
 
@@ -190,6 +190,10 @@ precisely the key names used by Q3A in the infostring.
             servers using this/these protocol(s). If no protocol name appears
             in the list, the master server won't filter the servers by protocol,
             behaving in practice as if all protocols appeared in the list.
+
+            As you can see in this sample, since the game name is mandatory for
+            the extended query, you'll have to use the game name "Quake3Arena"
+            explicitely if you want to ask for Q3A-compatible IPv6 servers.
 
     7) getserversExtResponse:
 

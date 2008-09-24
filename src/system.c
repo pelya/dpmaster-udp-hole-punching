@@ -64,7 +64,7 @@ const cmdlineopt_t sys_cmdline_options [] =
 	{
 		"daemon",
 		NULL,
-		"run as a daemon",
+		"Run as a daemon",
 		{ 0, 0 },
 		'D',
 		false,
@@ -73,8 +73,8 @@ const cmdlineopt_t sys_cmdline_options [] =
 	{
 		"jail-path",
 		"<jail_path>",
-		"use <jail_path> as chroot path (default: " DEFAULT_JAIL_PATH ")\n"
-		"   only available when running with super-user privileges",
+		"Use <jail_path> as chroot path (default: " DEFAULT_JAIL_PATH ")\n"
+		"   Only available when running with super-user privileges",
 		{ 0, 0 },
 		'j',
 		true,
@@ -83,8 +83,8 @@ const cmdlineopt_t sys_cmdline_options [] =
 	{
 		"user",
 		"<user>",
-		"use <user> privileges (default: " DEFAULT_LOW_PRIV_USER ")\n"
-		"   only available when running with super-user privileges",
+		"Use <user> privileges (default: " DEFAULT_LOW_PRIV_USER ")\n"
+		"   Only available when running with super-user privileges",
 		{ 0, 0 },
 		'u',
 		true,
