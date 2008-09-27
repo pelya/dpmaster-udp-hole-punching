@@ -232,7 +232,7 @@ http://en.wikipedia.org/wiki/IPv6#Address_scopes_and_zone_indices
         Long format for all command line options (see SYNTAX & OPTIONS above)
         The new hash function supports up to 16-bit hashes
         0 is no longer an invalid hash table size
-        New debugging option "--allow-loopback", used by the test suite
+        New option "--allow-loopback", for debugging purposes only!
         Various updates and improvements in the documentation
         The test suite now requires the Socket6 Perl module
 
