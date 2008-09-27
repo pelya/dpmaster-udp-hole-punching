@@ -750,9 +750,11 @@ server_t* Sv_GetByAddr (const struct sockaddr_storage* address, socklen_t addrle
 		}
 		else
 		{
-			assert (address->ss_family == AF_INET6);
+			const struct sockaddr_in6 *addr_in6;
 
-			const struct sockaddr_in6 *addr_in6 = (const struct sockaddr_in6*)address;
+			assert (address->ss_family == AF_INET6);
+			addr_in6 = (const struct sockaddr_in6*)address;
+
 			if (memcmp (&addr_in6->sin6_addr.s6_addr, &in6addr_loopback.s6_addr,
 						sizeof(addr_in6->sin6_addr.s6_addr)) == 0)
 			{

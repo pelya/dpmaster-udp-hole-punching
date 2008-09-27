@@ -66,6 +66,7 @@
 
 #ifdef WIN32
 typedef int socklen_t;
+typedef u_short sa_family_t;
 #endif
 
 // Listening socket
@@ -148,5 +149,6 @@ const char* Sys_GetLastNetErrorString (void);
 
 // Are we listening on an address of the given family?
 qboolean Sys_IsListeningOn (sa_family_t addr_family); 
+
 
 #endif  // #ifndef _SYSTEM_H_
