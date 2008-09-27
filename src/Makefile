@@ -14,7 +14,7 @@ UNIX_RM=rm -f
 ##### Common variables #####
 
 CC=gcc
-CFLAGS_COMMON=-Wall
+CFLAGS_COMMON=-Wall -Wdeclaration-after-statement
 CFLAGS_DEBUG=$(CFLAGS_COMMON) -g
 CFLAGS_RELEASE=$(CFLAGS_COMMON) -O2 -DNDEBUG
 OBJECTS=dpmaster.o messages.o servers.o system.o
