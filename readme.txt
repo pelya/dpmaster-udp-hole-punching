@@ -107,7 +107,7 @@ to be pretty verbose.
 
 Another way to use the log is to set maximum verbose output, but to enable it
 only when needed, and then to disable it afterwards. This is possible on the
-systems that provide processus signals USR1 and USR2, which means all supported
+systems that provide POSIX signals USR1 and USR2, which means all supported
 systems except the Windows family. When dpmaster receives the USR1 signal, it
 opens its log file (or reopens it if it was already opened), dumps the list of
 all registered servers, and then proceeds with its normal logging. When it
@@ -122,7 +122,7 @@ dpmaster as a daemon, remember that its working directory is the root directory,
 so be careful with absolute paths. And second, if you put your dpmaster into a
 chroot jail, don't forget when starting or restart the log that its path will
 then be relative to the jail root directory. Watch out for the log directory not
-being created or having the wrong permissions in this case.
+being created or having wrong permissions in this case.
 
 
 * ADDRESS MAPPING:
@@ -198,8 +198,8 @@ Running dpmaster with no "-l" option is (almost) like running it with:
 
 The first option is for listening on all IPv4 interfaces, the second for
 listening on all IPv6 interfaces, both on the default port. The only
-difference with no "-l" is that dpmaster will abort in this case if IPv4 or
-IPv6 isn't supported by your system, as you have explicitely requested those
+difference with having no "-l" is that dpmaster will abort in this case if IPv4
+or IPv6 isn't supported by your system, as you have explicitely requested those
 network sockets to be opened. Note that if you don't want dpmaster to listen
 on IPv6 interfaces, you can easily do it by only specifying "-l 0.0.0.0" on
 the command line.
@@ -231,8 +231,9 @@ http://en.wikipedia.org/wiki/IPv6#Address_scopes_and_zone_indices
         Improved listening interface option (see LISTENING INTERFACES above)
         Long format for all command line options (see SYNTAX & OPTIONS above)
         The new hash function supports up to 16-bit hashes
-        0 is no longer an invalid hash table size
+        0 is no longer an invalid hash size
         New option "--allow-loopback", for debugging purposes only!
+        New option "--hash-ports", for debugging purposes only!
         Various updates and improvements in the documentation
         The test suite now requires the Socket6 Perl module
 

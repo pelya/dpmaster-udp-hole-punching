@@ -3,7 +3,7 @@
 
 	Common header file for dpmaster
 
-	Copyright (C) 2004-2008  Mathieu Olivier
+	Copyright (C) 2004-2009  Mathieu Olivier
 
 	This program is free software; you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -71,11 +71,21 @@ typedef struct
 	qboolean need_param;		// "true" if the option requires 1 parameter
 }  cmdlineopt_t;
 
+// Command line status
+typedef enum
+{
+	CMDLINE_STATUS_OK,
+	CMDLINE_STATUS_SHOW_HELP,
+
+	// Errors
+	CMDLINE_STATUS_INVALID_OPT,
+	CMDLINE_STATUS_OPT_NEEDS_PARAM,
+	CMDLINE_STATUS_OPT_REFUSES_PARAM,
+	CMDLINE_STATUS_INVALID_PARAM,
+} cmdline_status_t;
+
 
 // ---------- Public variables ---------- //
-
-// The port we use dy default
-extern unsigned short master_port;
 
 // The current time (updated every time we receive a packet)
 extern time_t crt_time;
@@ -86,14 +96,35 @@ extern msg_level_t max_msg_level;
 // Peer address. We rebuild it every time we receive a new packet
 extern char peer_address [128];
 
+// Should we print the date before any new console message?
+extern qboolean print_date;
 
-// ---------- Public functions ---------- //
 
-// Print a message to screen, depending on its verbose level
-void MsgPrint (msg_level_t msg_level, const char* format, ...);
+// ---------- Public functions (logging) ---------- //
 
-// Returns a string containing the current date and time
-const char* BuildDateString (void);
+// Enable the logging
+void Com_EnableLog (void);
+
+// Flush the buffer of the log file
+void Com_FlushLog (void);
+
+// Test if the logging is enabled
+qboolean Com_IsLogEnabled (void);
+
+// Set the log file path (taken into account the next time it's opened)
+qboolean Com_SetLogFilePath (const char* filepath);
+
+// Update the logging status, opening or closing the log file when necessary
+qboolean Com_UpdateLogStatus (qboolean init);
+
+
+// ---------- Public functions (misc) ---------- //
+
+// Print a text to the screen and/or to the log file
+void Com_Printf (msg_level_t msg_level, const char* format, ...);
+
+// Handling of the signals sent to this process
+void Com_SignalHandler (int Signal);
 
 
 #endif  // #ifndef _COMMON_H_

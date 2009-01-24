@@ -3,7 +3,7 @@
 
 	System specific code for dpmaster
 
-	Copyright (C) 2008  Mathieu Olivier
+	Copyright (C) 2008-2009  Mathieu Olivier
 
 	This program is free software; you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -56,6 +56,9 @@ static const char* low_priv_user = DEFAULT_LOW_PRIV_USER;
 // The master sockets
 unsigned int nb_sockets = 0;
 listen_socket_t listen_sockets [MAX_LISTEN_SOCKETS];
+
+// The port we use by default
+unsigned short master_port = DEFAULT_MASTER_PORT;
 
 // System specific command line options
 const cmdlineopt_t sys_cmdline_options [] =
@@ -179,8 +182,8 @@ static qboolean Sys_BuildSockaddr (const char* addr_name, const char* port_name,
 	err = getaddrinfo(addr_name, port_name, &hints, &addrinf);
 	if (err != 0 || addrinf == NULL)
 	{
-		MsgPrint (MSG_ERROR, "> ERROR: can't resolve %s:%s (%s)\n",
-				  addr_name, port_name, gai_strerror (err));
+		Com_Printf (MSG_ERROR, "> ERROR: can't resolve %s:%s (%s)\n",
+					addr_name, port_name, gai_strerror (err));
 		return false;
 	}
 
@@ -218,17 +221,17 @@ static qboolean Sys_StringToSockaddr (const char* address,
 
 		if (end_bracket == NULL)
 		{
-			MsgPrint (MSG_ERROR,
-					  "> ERROR: IPv6 address has no closing bracket (%s)\n",
-					  address);
+			Com_Printf (MSG_ERROR,
+						"> ERROR: IPv6 address has no closing bracket (%s)\n",
+						address);
 			return false;
 		}
 
 		if (end_bracket[1] != ':' && end_bracket[1] != '\0')
 		{
-			MsgPrint (MSG_ERROR,
-					  "> ERROR: invalid end of bracketed IPv6 address (%s)\n",
-					  address);
+			Com_Printf (MSG_ERROR,
+						"> ERROR: invalid end of bracketed IPv6 address (%s)\n",
+						address);
 			return false;
 		}
 
@@ -274,9 +277,9 @@ static qboolean Sys_StringToSockaddr (const char* address,
 	// Check the address length
 	if (addr_length >= sizeof (addr_buff))
 	{
-		MsgPrint (MSG_ERROR,
-				  "> ERROR: address too long to be resolved (%s)\n",
-				  address);
+		Com_Printf (MSG_ERROR,
+					"> ERROR: address too long to be resolved (%s)\n",
+					address);
 		return false;
 	}
 	memcpy (addr_buff, addr_start, addr_length);
@@ -309,9 +312,9 @@ qboolean Sys_DeclareListenAddress (const char* local_addr_name)
 		return true;
 	}
 	else
-		MsgPrint (MSG_ERROR,
-				  "> ERROR: too many listening addresses (max: %d)\n",
-				  MAX_LISTEN_SOCKETS);
+		Com_Printf (MSG_ERROR,
+					"> ERROR: too many listening addresses (max: %d)\n",
+					MAX_LISTEN_SOCKETS);
 
 	return false;
 }
@@ -390,9 +393,9 @@ qboolean Sys_CreateListenSockets (void)
 			if (Sys_GetLastNetError() == NETERR_AFNOSUPPORT &&
 				listen_sock->optional)
 			{
-				MsgPrint (MSG_WARNING, "> WARNING: protocol %s isn't supported\n",
-						  (addr_family == AF_INET) ? "IPv4" :
-						  ((addr_family == AF_INET6) ? "IPv6" : "UNKNOWN"));
+				Com_Printf (MSG_WARNING, "> WARNING: protocol %s isn't supported\n",
+							(addr_family == AF_INET) ? "IPv4" :
+							((addr_family == AF_INET6) ? "IPv6" : "UNKNOWN"));
 
 				if (sock_ind + 1 < nb_sockets)
 					memmove (&listen_sockets[sock_ind], &listen_sockets[sock_ind + 1],
@@ -403,8 +406,8 @@ qboolean Sys_CreateListenSockets (void)
 				continue;
 			}
 
-			MsgPrint (MSG_ERROR, "> ERROR: socket creation failed (%s)\n",
-					  Sys_GetLastNetErrorString ());
+			Com_Printf (MSG_ERROR, "> ERROR: socket creation failed (%s)\n",
+						Sys_GetLastNetErrorString ());
 			Sys_CloseAllSockets ();
 			return false;
 		}
@@ -423,8 +426,8 @@ qboolean Sys_CreateListenSockets (void)
 				if (Sys_GetLastNetError() != NETERR_NOPROTOOPT)
 #endif
 				{
-					MsgPrint (MSG_ERROR, "> ERROR: setsockopt(IPV6_V6ONLY) failed (%s)\n",
-							  Sys_GetLastNetErrorString ());
+					Com_Printf (MSG_ERROR, "> ERROR: setsockopt(IPV6_V6ONLY) failed (%s)\n",
+								Sys_GetLastNetErrorString ());
 
 					Sys_CloseAllSockets ();
 					return false;
@@ -434,18 +437,18 @@ qboolean Sys_CreateListenSockets (void)
 		}
 
 		if (listen_sock->local_addr_name != NULL)
-			MsgPrint (MSG_NORMAL, "> Listening on address %s (%s)\n",
-					  listen_sock->local_addr_name,
-					  Sys_SockaddrToString(&listen_sock->local_addr));
+			Com_Printf (MSG_NORMAL, "> Listening on address %s (%s)\n",
+						listen_sock->local_addr_name,
+						Sys_SockaddrToString(&listen_sock->local_addr));
 		else
-			MsgPrint (MSG_NORMAL, "> Listening on all %s addresses\n",
-					  addr_family == AF_INET6 ? "IPv6" : "IPv4");
+			Com_Printf (MSG_NORMAL, "> Listening on all %s addresses\n",
+						addr_family == AF_INET6 ? "IPv6" : "IPv4");
 
 		if (bind (crt_sock, (struct sockaddr*)&listen_sock->local_addr,
 				  listen_sock->local_addr_len) != 0)
 		{
-			MsgPrint (MSG_ERROR, "> ERROR: socket binding failed (%s)\n",
-					  Sys_GetLastNetErrorString ());
+			Com_Printf (MSG_ERROR, "> ERROR: socket binding failed (%s)\n",
+						Sys_GetLastNetErrorString ());
 
 			Sys_CloseAllSockets ();
 			return false;
@@ -468,7 +471,7 @@ Parse a system-dependent command line option
 "param" may be NULL, if the option doesn't need a parameter
 ====================
 */
-qboolean Sys_Cmdline_Option (const cmdlineopt_t* opt, const char* param)
+cmdline_status_t Sys_Cmdline_Option (const cmdlineopt_t* opt, const char* param)
 {
 #ifndef WIN32
 
@@ -491,12 +494,12 @@ qboolean Sys_Cmdline_Option (const cmdlineopt_t* opt, const char* param)
 	else if (strcmp (opt_name, "user") == 0)
 		low_priv_user = param;
 
-	return true;
+	return CMDLINE_STATUS_OK;
 
 #else
 
 	assert (false);  // We should never be here
-	return false;
+	return CMDLINE_STATUS_INVALID_OPT;
 
 #endif
 }
@@ -516,7 +519,7 @@ qboolean Sys_UnsecureInit (void)
 
 	if (WSAStartup (MAKEWORD (1, 1), &winsockdata))
 	{
-		MsgPrint (MSG_ERROR, "> ERROR: can't initialize winsocks\n");
+		Com_Printf (MSG_ERROR, "> ERROR: can't initialize winsocks\n");
 		return false;
 	}
 #endif
@@ -540,39 +543,39 @@ qboolean Sys_SecurityInit (void)
 	{
 		struct passwd* pw;
 
-		MsgPrint (MSG_WARNING,
-				  "> WARNING: running with super-user privileges\n");
+		Com_Printf (MSG_WARNING,
+					"> WARNING: running with super-user privileges\n");
 
 		// We must get the account infos before the calls to chroot and chdir
 		pw = getpwnam (low_priv_user);
 		if (pw == NULL)
 		{
-			MsgPrint (MSG_ERROR, "> ERROR: can't get user \"%s\" properties\n",
-					  low_priv_user);
+			Com_Printf (MSG_ERROR, "> ERROR: can't get user \"%s\" properties\n",
+						low_priv_user);
 			return false;
 		}
 
 		// Chroot ourself
-		MsgPrint (MSG_NORMAL, "  - chrooting myself to %s... ", jail_path);
+		Com_Printf (MSG_NORMAL, "  - chrooting myself to %s... ", jail_path);
 		if (chroot (jail_path) || chdir ("/"))
 		{
-			MsgPrint (MSG_ERROR, "FAILED (%s)\n", strerror (errno));
+			Com_Printf (MSG_ERROR, "FAILED (%s)\n", strerror (errno));
 			return false;
 		}
-		MsgPrint (MSG_NORMAL, "succeeded\n");
+		Com_Printf (MSG_NORMAL, "succeeded\n");
 
 		// Switch to lower privileges
-		MsgPrint (MSG_NORMAL, "  - switching to user \"%s\" privileges... ",
-				  low_priv_user);
+		Com_Printf (MSG_NORMAL, "  - switching to user \"%s\" privileges... ",
+					low_priv_user);
 		if (setgid (pw->pw_gid) || setuid (pw->pw_uid))
 		{
-			MsgPrint (MSG_ERROR, "FAILED (%s)\n", strerror (errno));
+			Com_Printf (MSG_ERROR, "FAILED (%s)\n", strerror (errno));
 			return false;
 		}
-		MsgPrint (MSG_NORMAL, "succeeded (UID: %d, GID: %d)\n",
-				  (int)pw->pw_uid, (int)pw->pw_gid);
+		Com_Printf (MSG_NORMAL, "succeeded (UID: %d, GID: %d)\n",
+					(int)pw->pw_uid, (int)pw->pw_gid);
 
-		MsgPrint (MSG_NORMAL, "\n");
+		Com_Printf (MSG_NORMAL, "\n");
 	}
 #endif
 
@@ -595,8 +598,8 @@ qboolean Sys_SecureInit (void)
 	{
 		if (daemon (0, 0) != 0)
 		{
-			MsgPrint (MSG_ERROR, "> ERROR: daemonization failed (%s)\n",
-					  strerror (errno));
+			Com_Printf (MSG_ERROR, "> ERROR: daemonization failed (%s)\n",
+						strerror (errno));
 			
 			daemon_state = DAEMON_STATE_NO;
 			return false;
@@ -645,9 +648,9 @@ const char* Sys_SockaddrToString (const struct sockaddr_storage* address)
 	}
 	else
 	{
-		MsgPrint (MSG_WARNING,
-				  "> WARNING: can't convert address to a printable form: %s\n",
-				  gai_strerror(err));
+		Com_Printf (MSG_WARNING,
+					"> WARNING: can't convert address to a printable form: %s\n",
+					gai_strerror(err));
 		result[0] = '\0';
 	}
    
@@ -708,8 +711,34 @@ Get the last network error string
 */
 const char* Sys_GetLastNetErrorString (void)
 {
-	// TOCHECK: I'm not sure this works on Windows
-	return strerror (Sys_GetLastNetError ());
+	int last_error = Sys_GetLastNetError ();
+
+#ifndef WIN32
+	return strerror (last_error);
+#else
+	switch (last_error)
+	{
+		case NETERR_AFNOSUPPORT:
+			return "Address family not supported by protocol family";
+
+		case NETERR_NOPROTOOPT:
+			return "Bad protocol option";
+
+		case NETERR_INTR:
+			return "Blocking operation interrupted";
+
+		default:
+		{
+			static char last_error_string [32];
+
+			snprintf (last_error_string, sizeof (last_error_string),
+					  "Unknown error (%d)", last_error);
+			last_error_string[sizeof (last_error_string) - 1] = '\0';
+
+			return last_error_string;
+		}
+	}
+#endif
 }
 
 

@@ -3,7 +3,7 @@
 
 	Server list and address mapping management for dpmaster
 
-	Copyright (C) 2004-2008  Mathieu Olivier
+	Copyright (C) 2004-2009  Mathieu Olivier
 
 	This program is free software; you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -88,6 +88,9 @@ typedef struct server_s
 
 // Are servers talking from a loopback interface allowed?
 extern qboolean allow_loopback;
+
+// Are port numbers used when computing servers hashes?
+extern qboolean hash_ports;
 
 
 // ---------- Public functions (servers) ---------- //

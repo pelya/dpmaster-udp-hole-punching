@@ -3,7 +3,7 @@
 
 	System specific code for dpmaster
 
-	Copyright (C) 2008  Mathieu Olivier
+	Copyright (C) 2008-2009  Mathieu Olivier
 
 	This program is free software; you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -50,6 +50,9 @@
 // The maximum number of listening sockets
 #define MAX_LISTEN_SOCKETS 8
 
+// Default master port
+#define DEFAULT_MASTER_PORT 27950
+
 // Network errors code
 #ifdef WIN32
 #	define NETERR_AFNOSUPPORT	WSAEAFNOSUPPORT
@@ -61,6 +64,16 @@
 #	define NETERR_INTR			EINTR
 #endif
 
+// Windows' CRT wants an explicit buffer size for its setvbuf() calls
+#ifndef WIN32
+#	define SETVBUF_DEFAULT_SIZE 0
+#else
+#	define SETVBUF_DEFAULT_SIZE 4096
+#endif
+
+#ifndef MAX_PATH
+#	define MAX_PATH PATH_MAX
+#endif
 
 // ---------- Public types ---------- //
 
@@ -94,6 +107,9 @@ typedef enum
 extern unsigned int nb_sockets;
 extern listen_socket_t listen_sockets [MAX_LISTEN_SOCKETS];
 
+// The port we use dy default
+extern unsigned short master_port;
+
 // System specific command line options
 extern const cmdlineopt_t sys_cmdline_options [];
 
@@ -124,7 +140,7 @@ qboolean Sys_CreateListenSockets (void);
 
 // Parse a system-dependent command line option
 // "param" may be NULL, if the option doesn't need a parameter
-qboolean Sys_Cmdline_Option (const cmdlineopt_t* opt, const char* param);
+cmdline_status_t Sys_Cmdline_Option (const cmdlineopt_t* opt, const char* param);
 
 // System dependent initializations (called BEFORE security initializations)
 qboolean Sys_UnsecureInit (void);

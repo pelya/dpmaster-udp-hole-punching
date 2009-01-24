@@ -14,7 +14,7 @@ use Time::HiRes qw(time sleep);
 
 # Constants - dpmaster
 use constant DEFAULT_DPMASTER_PATH => "../src/dpmaster";
-use constant DEFAULT_DPMASTER_OPTIONS => "--allow-loopback";
+use constant DEFAULT_DPMASTER_OPTIONS => "--allow-loopback --hash-ports";
 use constant IPV4_ADDRESS => "127.0.0.1";
 use constant IPV6_ADDRESS => "::1";
 use constant DEFAULT_DPMASTER_PORT => 27950;

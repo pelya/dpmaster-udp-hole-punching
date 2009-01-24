@@ -3,7 +3,7 @@
 
 	Message management for dpmaster
 
-	Copyright (C) 2004-2008  Mathieu Olivier
+	Copyright (C) 2004-2009  Mathieu Olivier
 
 	This program is free software; you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -204,11 +204,11 @@ static void SendGetInfo (server_t* server, int recv_socket)
 	if (sendto (recv_socket, msg, strlen (msg), 0,
 				(const struct sockaddr*)&server->address,
 				server->addrlen) < 0)
-		MsgPrint (MSG_WARNING, "> WARNING: can't send getinfo (%s)\n",
-				  Sys_GetLastNetErrorString ());
+		Com_Printf (MSG_WARNING, "> WARNING: can't send getinfo (%s)\n",
+					Sys_GetLastNetErrorString ());
 	else
-		MsgPrint (MSG_DEBUG, "> %s <--- getinfo with challenge \"%s\"\n",
-			  peer_address, server->challenge);
+		Com_Printf (MSG_DEBUG, "> %s <--- getinfo with challenge \"%s\"\n",
+					peer_address, server->challenge);
 }
 
 
@@ -262,9 +262,9 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 		msg_ptr = msg;
 	}
 
-	MsgPrint (MSG_NORMAL, "> %s ---> %s (%s)\n",
-			  extended_request ? "getserversExt" : "getservers", peer_address,
-			  gamename);
+	Com_Printf (MSG_NORMAL, "> %s ---> %s (%s)\n",
+				extended_request ? "getserversExt" : "getservers", peer_address,
+				gamename);
 
 	// Parse the filtering options
 	strncpy (filter_options, msg_ptr, sizeof (filter_options) - 1);
@@ -324,11 +324,11 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 			request_name = (extended_request ? "getserversExtResponse" : "getserversResponse");
 			if (sendto (recv_socket, packet, packetind, 0,
 					(const struct sockaddr*)addr, addrlen) < 0)
-				MsgPrint (MSG_WARNING, "> WARNING: can't send %s (%s)\n",
-						  request_name, Sys_GetLastNetErrorString ());
+				Com_Printf (MSG_WARNING, "> WARNING: can't send %s (%s)\n",
+							request_name, Sys_GetLastNetErrorString ());
 			else
-				MsgPrint (MSG_DEBUG, "> %s <--- %s (%u servers)\n",
-						  request_name, peer_address, nb_servers);
+				Com_Printf (MSG_DEBUG, "> %s <--- %s (%u servers)\n",
+							request_name, peer_address, nb_servers);
 
 			// If we're done
 			if (sv == NULL)
@@ -344,28 +344,28 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 		if (max_msg_level >= MSG_DEBUG)
 		{
 			const char * addrstr = Sys_SockaddrToString (&sv->address);
-			MsgPrint (MSG_DEBUG,
-					  "Comparing server: IP:\"%s\", p:%d, g:\"%s\"\n",
-					  addrstr, sv->protocol, sv->gamename);
+			Com_Printf (MSG_DEBUG,
+						"Comparing server: IP:\"%s\", p:%d, g:\"%s\"\n",
+						addrstr, sv->protocol, sv->gamename);
 
 			if (sv->address.ss_family == AF_INET && ! opt_ipv4)
-				MsgPrint (MSG_DEBUG, "Reject: no IPv4 servers allowed\n");
+				Com_Printf (MSG_DEBUG, "Reject: no IPv4 servers allowed\n");
 			if (sv->address.ss_family == AF_INET6 && ! opt_ipv6)
-				MsgPrint (MSG_DEBUG, "Reject: no IPv6 servers allowed\n");
+				Com_Printf (MSG_DEBUG, "Reject: no IPv6 servers allowed\n");
 			if (sv->protocol != protocol)
-				MsgPrint (MSG_DEBUG,
-						  "Reject: protocol %d != requested %d\n",
-						  sv->protocol, protocol);
+				Com_Printf (MSG_DEBUG,
+							"Reject: protocol %d != requested %d\n",
+							sv->protocol, protocol);
 			if (sv->state <= sv_state_uninitialized)
-				MsgPrint (MSG_DEBUG, "Reject: server is not initialized\n");
+				Com_Printf (MSG_DEBUG, "Reject: server is not initialized\n");
 			if (sv->state == sv_state_empty && ! opt_empty)
-				MsgPrint (MSG_DEBUG, "Reject: server is empty && no_empty\n");
+				Com_Printf (MSG_DEBUG, "Reject: server is empty && no_empty\n");
 			if (sv->state == sv_state_full && ! opt_full)
-				MsgPrint (MSG_DEBUG, "Reject: server is full && no_full\n");
+				Com_Printf (MSG_DEBUG, "Reject: server is full && no_full\n");
 			if (strcmp (gamename, sv->gamename) != 0)
-				MsgPrint (MSG_DEBUG,
-						  "Reject: gamename \"%s\" != requested \"%s\"\n",
-						  sv->gamename, gamename);
+				Com_Printf (MSG_DEBUG,
+							"Reject: gamename \"%s\" != requested \"%s\"\n",
+							sv->gamename, gamename);
 		}
 
 		// Check protocols, options, and gamename
@@ -400,11 +400,11 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 				if (addrmap->to.sin_port != 0)
 					sv_port = ntohs (addrmap->to.sin_port);
 
-				MsgPrint (MSG_DEBUG,
-						  "Server address mapped to %u.%u.%u.%u:%hu\n",
-						  sv_addr >> 24, (sv_addr >> 16) & 0xFF,
-						  (sv_addr >>  8) & 0xFF, sv_addr & 0xFF,
-						  sv_port);
+				Com_Printf (MSG_DEBUG,
+							"Server address mapped to %u.%u.%u.%u:%hu\n",
+							sv_addr >> 24, (sv_addr >> 16) & 0xFF,
+							(sv_addr >>  8) & 0xFF, sv_addr & 0xFF,
+							sv_port);
 			}
 
 			// Heading '\'
@@ -420,10 +420,10 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 			packet[packetind + 5] = sv_port >> 8;
 			packet[packetind + 6] = sv_port & 0xFF;
 
-			MsgPrint (MSG_DEBUG, "  - Sending server %u.%u.%u.%u:%hu\n",
-					  packet[packetind + 1], packet[packetind + 2],
-					  packet[packetind + 3], packet[packetind + 4],
-					  sv_port);
+			Com_Printf (MSG_DEBUG, "  - Sending server %u.%u.%u.%u:%hu\n",
+						packet[packetind + 1], packet[packetind + 2],
+						packet[packetind + 3], packet[packetind + 4],
+						sv_port);
 
 			packetind += 7;
 			nb_servers++;
@@ -472,16 +472,16 @@ static void HandleInfoResponse (server_t* server, const char* msg)
 	// Check the challenge
 	if (!server->challenge_timeout || server->challenge_timeout < crt_time)
 	{
-		MsgPrint (MSG_WARNING,
-				  "> WARNING: infoResponse with obsolete challenge from %s\n",
-				  peer_address);
+		Com_Printf (MSG_WARNING,
+					"> WARNING: infoResponse with obsolete challenge from %s\n",
+					peer_address);
 		return;
 	}
 	value = SearchInfostring (msg, "challenge");
 	if (!value || strcmp (value, server->challenge))
 	{
-		MsgPrint (MSG_ERROR, "> ERROR: invalid challenge from %s (%s)\n",
-				  peer_address, value);
+		Com_Printf (MSG_ERROR, "> ERROR: invalid challenge from %s (%s)\n",
+					peer_address, value);
 		return;
 	}
 
@@ -489,17 +489,17 @@ static void HandleInfoResponse (server_t* server, const char* msg)
  	value = SearchInfostring (msg, "protocol");
 	if (value == NULL)
 	{
-		MsgPrint (MSG_ERROR,
-				  "> ERROR: invalid infoResponse from %s (no protocol value)\n",
-				  peer_address);
+		Com_Printf (MSG_ERROR,
+					"> ERROR: invalid infoResponse from %s (no protocol value)\n",
+					peer_address);
 		return;
 	}
 	new_protocol = (int)strtol (value, &end_ptr, 0);
 	if (end_ptr == value || *end_ptr != '\0')
 	{
-		MsgPrint (MSG_ERROR,
-				  "> ERROR: invalid infoResponse from %s (invalid protocol value: %s)\n",
-				  peer_address, value);
+		Com_Printf (MSG_ERROR,
+					"> ERROR: invalid infoResponse from %s (invalid protocol value: %s)\n",
+					peer_address, value);
 		return;
 	}
 
@@ -508,9 +508,9 @@ static void HandleInfoResponse (server_t* server, const char* msg)
 	new_maxclients = ((value != NULL) ? atoi (value) : 0);
 	if (new_maxclients == 0)
 	{
-		MsgPrint (MSG_ERROR,
-				  "> ERROR: invalid infoResponse from %s (sv_maxclients = %d)\n",
-				  peer_address, new_maxclients);
+		Com_Printf (MSG_ERROR,
+					"> ERROR: invalid infoResponse from %s (sv_maxclients = %d)\n",
+					peer_address, new_maxclients);
 		return;
 	}
 
@@ -518,9 +518,9 @@ static void HandleInfoResponse (server_t* server, const char* msg)
 	value = SearchInfostring (msg, "clients");
 	if (value == NULL)
 	{
-		MsgPrint (MSG_ERROR,
-				  "> ERROR: invalid infoResponse from %s (no \"clients\" value)\n",
-				  peer_address);
+		Com_Printf (MSG_ERROR,
+					"> ERROR: invalid infoResponse from %s (no \"clients\" value)\n",
+					peer_address);
 		return;
 	}
 	new_clients = ((value != NULL) ? atoi (value) : 0);
@@ -531,16 +531,16 @@ static void HandleInfoResponse (server_t* server, const char* msg)
 		value = GAMENAME_Q3A;
 	else if (value[0] == '\0')
 	{
-		MsgPrint (MSG_ERROR,
-				  "> ERROR: invalid infoResponse from %s (game name is void)\n",
-				  peer_address);
+		Com_Printf (MSG_ERROR,
+					"> ERROR: invalid infoResponse from %s (game name is void)\n",
+					peer_address);
 		return;
 	}
 	else if (strchr (value, ' ') != NULL)
 	{
-		MsgPrint (MSG_ERROR,
-				  "> ERROR: invalid infoResponse from %s (game name contains whitespaces)\n",
-				  peer_address);
+		Com_Printf (MSG_ERROR,
+					"> ERROR: invalid infoResponse from %s (game name contains whitespaces)\n",
+					peer_address);
 		return;
 	}
 
@@ -551,9 +551,9 @@ static void HandleInfoResponse (server_t* server, const char* msg)
 		if (server->gamename[0] != '\0')
 		{
 			assert (server->state > sv_state_uninitialized);
-			MsgPrint (MSG_WARNING,
-					  "> Server %s updated its gamename: \"%s\" -> \"%s\"\n",
-					  peer_address, server->gamename, value);
+			Com_Printf (MSG_WARNING,
+						"> Server %s updated its gamename: \"%s\" -> \"%s\"\n",
+						peer_address, server->gamename, value);
 		}
 		else
 			assert (server->state == sv_state_uninitialized);
@@ -598,8 +598,8 @@ void HandleMessage (const char* msg, size_t length,
 
 		// Extract the game id
 		sscanf (msg + strlen (S2M_HEARTBEAT) + 1, "%63s", gameId);
-		MsgPrint (MSG_DEBUG, "> %s ---> heartbeat (%s)\n",
-				  peer_address, gameId);
+		Com_Printf (MSG_DEBUG, "> %s ---> heartbeat (%s)\n",
+					peer_address, gameId);
 
 		// Get the server in the list (add it to the list if necessary)
 		server = Sv_GetByAddr (address, addrlen, true);
@@ -615,14 +615,14 @@ void HandleMessage (const char* msg, size_t length,
 	// If it's an infoResponse message
 	else if (!strncmp (S2M_INFORESPONSE, msg, strlen (S2M_INFORESPONSE)))
 	{
-		MsgPrint (MSG_DEBUG, "> %s ---> infoResponse\n", peer_address);
+		Com_Printf (MSG_DEBUG, "> %s ---> infoResponse\n", peer_address);
 	
 		server = Sv_GetByAddr (address, addrlen, false);
 		if (server == NULL)
 		{
-			MsgPrint (MSG_WARNING,
-					  "> WARNING: infoResponse from unknown server %s\n",
-					  peer_address);
+			Com_Printf (MSG_WARNING,
+						"> WARNING: infoResponse from unknown server %s\n",
+						peer_address);
 			return;
 		}
 

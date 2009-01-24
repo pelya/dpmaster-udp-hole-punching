@@ -3,7 +3,7 @@
 
 	Server list and address mapping management for dpmaster
 
-	Copyright (C) 2004-2008  Mathieu Olivier
+	Copyright (C) 2004-2009  Mathieu Olivier
 
 	This program is free software; you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -62,6 +62,9 @@ static addrmap_t* addrmaps = NULL;
 // Are servers talking from a loopback interface allowed?
 qboolean allow_loopback = false;
 
+// Are port numbers used when computing servers hashes?
+qboolean hash_ports = false;
+
 
 // ---------- Private functions ---------- //
 
@@ -83,7 +86,14 @@ static unsigned int Sv_AddressHash (const struct sockaddr_storage* address)
 
 		addr6 = (const struct sockaddr_in6*)address;
 		ipv6_ptr = (const unsigned int*)&addr6->sin6_addr.s6_addr;
-		hash = ipv6_ptr[0] ^ ipv6_ptr[1] ^ ipv6_ptr[2] ^ ipv6_ptr[3];
+		
+		// Since an IPv6 device can have multiple addresses, we only hash
+		// the non-configurable part of its public address (meaning the first
+		// 64 bits, or subnet part)
+		hash = ipv6_ptr[0] ^ ipv6_ptr[1];
+		
+		if (hash_ports)
+			hash ^= addr6->sin6_port;
 	}
 	else
 	{
@@ -95,26 +105,19 @@ static unsigned int Sv_AddressHash (const struct sockaddr_storage* address)
 		addr4 = (const struct sockaddr_in*)address;
 		ipv4_ptr = (const unsigned int*)&addr4->sin_addr.s_addr;
 		hash = ipv4_ptr[0];
+		
+		if (hash_ports)
+			hash ^= addr4->sin_port;
 	}
 
 	// Merge all the bits in the first 16 bits
 	hash = (hash & 0xFFFF) ^ (hash >> 16);
+	
+	// Merge the bits we won't use in the upper part into the lower part.
+	// If hash_size < 8, some bits will be lost, but it's not a real problem
+	hash = (hash ^ (hash >> hash_size)) & ((1 << hash_size) - 1);
 
-	// Merge the bits to try to not lose too many of them (3 max here)
-	if (hash_size >= 8)
-	{
-		hash = (hash >> hash_size) ^ hash;
-	}
-	else if (hash_size > 4)
-	{
-		hash = (hash >> 8) ^ hash;
-	}
-	else  // if (hash_size <= 4)
-	{
-		hash = (hash >> 12) ^ (hash >> 8) ^ (hash >>  4) ^ hash;
-	}
-
-	return hash & ((1 << hash_size) - 1);
+	return hash;
 }
 
 
@@ -184,9 +187,9 @@ static void Sv_Remove (server_t* sv)
 		} while (last_used_slot >= 0 && servers[last_used_slot].state != sv_state_unused_slot);
 
 	nb_servers--;
-	MsgPrint (MSG_NORMAL,
-	          "> %s timed out; %u server(s) currently registered\n",
-	          Sys_SockaddrToString(&sv->address), nb_servers);
+	Com_Printf (MSG_NORMAL,
+				"> %s timed out; %u server(s) currently registered\n",
+				Sys_SockaddrToString(&sv->address), nb_servers);
 
 	assert (last_used_slot >= (int)nb_servers - 1);
 }
@@ -208,14 +211,14 @@ static server_t** Sv_AllocateHashTable (size_t table_size, const char* proto_nam
 	if (result != NULL)
 	{
 		memset (result, 0, array_size);
-		MsgPrint (MSG_NORMAL,
-				  "> %s hash table allocated (%u entries)\n",
-				  proto_name, table_size);
+		Com_Printf (MSG_NORMAL,
+					"> %s hash table allocated (%u entries)\n",
+					proto_name, table_size);
 	}
 	else
-		MsgPrint (MSG_ERROR,
-				  "> ERROR: can't allocate the %s hash table (%s)\n",
-				  proto_name, strerror (errno));
+		Com_Printf (MSG_ERROR,
+					"> ERROR: can't allocate the %s hash table (%s)\n",
+					proto_name, strerror (errno));
 	
 	return result;
 }
@@ -252,14 +255,14 @@ static qboolean Sv_IsActive (unsigned int sv_ind)
 
 /*
 ====================
-Sv_SameIPv4Addr
+Sv_CompareIPv4Addr
 
 Compare 2 IPv4 addresses and return "true" if they're equal
 ====================
 */
 static qboolean Sv_SameIPv4Addr (const struct sockaddr_storage* addr1,
 								 const struct sockaddr_storage* addr2,
-								 qboolean* same_ip_address)
+								 qboolean* same_public_address)
 {
 	const struct sockaddr_in *addr1_in, *addr2_in;
 
@@ -269,14 +272,14 @@ static qboolean Sv_SameIPv4Addr (const struct sockaddr_storage* addr1,
 	// Same address?
 	if (addr1_in->sin_addr.s_addr == addr2_in->sin_addr.s_addr)
 	{
-		*same_ip_address = true;
+		*same_public_address = true;
 
 		// Same port?
 		if (addr1_in->sin_port == addr2_in->sin_port)
 			return true;
 	}
 	else
-		*same_ip_address = false;
+		*same_public_address = false;
 
 	return false;
 }
@@ -284,32 +287,37 @@ static qboolean Sv_SameIPv4Addr (const struct sockaddr_storage* addr1,
 
 /*
 ====================
-Sv_SameIPv6Addr
+Sv_CompareIPv6Addr
 
 Compare 2 IPv6 addresses and return "true" if they're equal
 ====================
 */
 static qboolean Sv_SameIPv6Addr (const struct sockaddr_storage* addr1,
 								 const struct sockaddr_storage* addr2,
-								 qboolean* same_ip_address)
+								 qboolean* same_public_address)
 {
 	const struct sockaddr_in6 *addr1_in6, *addr2_in6;
+	const unsigned char *addr1_buff, *addr2_buff;
 
 	addr1_in6 = (const struct sockaddr_in6*)addr1;
+	addr1_buff = (const unsigned char*)&addr1_in6->sin6_addr.s6_addr;
+
 	addr2_in6 = (const struct sockaddr_in6*)addr2;
+	addr2_buff = (const unsigned char*)&addr2_in6->sin6_addr.s6_addr;
 
-	// Same address?
-	if (memcmp (&addr1_in6->sin6_addr.s6_addr, &addr2_in6->sin6_addr.s6_addr,
-				sizeof(addr1_in6->sin6_addr.s6_addr)) == 0)
+	// Same subnet address (first 64 bits)?
+	if (memcmp (addr1_buff, addr2_buff, 8) == 0)
 	{
-		*same_ip_address = true;
+		*same_public_address = true;
 
-		// Same port?
-		if (addr1_in6->sin6_port == addr2_in6->sin6_port)
+		// Same scope ID, port, and host address (last 64 bits)?
+		if (addr1_in6->sin6_scope_id == addr2_in6->sin6_scope_id &&
+			addr1_in6->sin6_port == addr2_in6->sin6_port &&
+			memcmp (addr1_buff + 8, addr2_buff + 8, 8) == 0)
 			return true;
 	}
 	else
-		*same_ip_address = false;
+		*same_public_address = false;
 
 	return false;
 }
@@ -327,7 +335,7 @@ static server_t* Sv_GetByAddr_Internal (const struct sockaddr_storage* address, 
 	unsigned int hash = Sv_AddressHash (address);
 	server_t** hash_table;
 	server_t* sv;
-	qboolean (*IsSameAddress) (const struct sockaddr_storage* addr1, const struct sockaddr_storage* addr2, qboolean* same_address);
+	qboolean (*IsSameAddress) (const struct sockaddr_storage* addr1, const struct sockaddr_storage* addr2, qboolean* same_public_address);
 	
 	if (address->ss_family == AF_INET6)
 	{
@@ -350,12 +358,12 @@ static server_t* Sv_GetByAddr_Internal (const struct sockaddr_storage* address, 
 		if (Sv_IsActive(sv - servers))
 		{
 			// Same address?
-			qboolean same_ip_address;
+			qboolean same_public_address;
 			qboolean same_address;
 
-			same_ip_address = false;
-			same_address = IsSameAddress (&sv->address, address, &same_ip_address);
-			if (same_ip_address)
+			same_public_address = false;
+			same_address = IsSameAddress (&sv->address, address, &same_public_address);
+			if (same_public_address)
 				*same_address_found += 1;
 			if (same_address)
 			{
@@ -408,9 +416,9 @@ static qboolean Sv_ResolveAddr (const char* name, struct sockaddr_in* addr)
 	namecpy = strdup (name);
 	if (namecpy == NULL)
 	{
-		MsgPrint (MSG_ERROR,
-				  "> ERROR: can't allocate enough memory to resolve %s\n",
-				  name);
+		Com_Printf (MSG_ERROR,
+					"> ERROR: can't allocate enough memory to resolve %s\n",
+					name);
 		return false;
 	}
 
@@ -423,14 +431,14 @@ static qboolean Sv_ResolveAddr (const char* name, struct sockaddr_in* addr)
 	host = gethostbyname (namecpy);
 	if (host == NULL)
 	{
-		MsgPrint (MSG_ERROR, "> ERROR: can't resolve %s\n", namecpy);
+		Com_Printf (MSG_ERROR, "> ERROR: can't resolve %s\n", namecpy);
 		free (namecpy);
 		return false;
 	}
 	if (host->h_addrtype != AF_INET)
 	{
-		MsgPrint (MSG_ERROR, "> ERROR: %s is not an IPv4 address\n",
-				  namecpy);
+		Com_Printf (MSG_ERROR, "> ERROR: %s is not an IPv4 address\n",
+					namecpy);
 		free (namecpy);
 		return false;
 	}
@@ -448,16 +456,16 @@ static qboolean Sv_ResolveAddr (const char* name, struct sockaddr_in* addr)
 		port_num = (unsigned short)strtol (port, &end_ptr, 0);
 		if (end_ptr == port || *end_ptr != '\0' || port_num == 0)
 		{
-			MsgPrint (MSG_ERROR, "> ERROR: %s is not a valid port number\n",
-					  port);
+			Com_Printf (MSG_ERROR, "> ERROR: %s is not a valid port number\n",
+						port);
 			free (namecpy);
 			return false;
 		}
 		addr->sin_port = htons (port_num);
 	}
 
-	MsgPrint (MSG_DEBUG, "> \"%s\" resolved to %s:%hu\n",
-			  name, inet_ntoa (addr->sin_addr), ntohs (addr->sin_port));
+	Com_Printf (MSG_DEBUG, "> \"%s\" resolved to %s:%hu\n",
+				name, inet_ntoa (addr->sin_addr), ntohs (addr->sin_port));
 
 	free (namecpy);
 	return true;
@@ -488,10 +496,10 @@ static void Sv_InsertAddrmapIntoList (addrmap_t* new_map)
 			// If a mapping is already recorded for this address
 			if (addrmap->from.sin_port == new_map->from.sin_port)
 			{
-				MsgPrint (MSG_WARNING,
-						  "> WARNING: overwritting the previous mapping of address %s:%hu\n",
-						  inet_ntoa (new_map->from.sin_addr),
-						  ntohs (new_map->from.sin_port));
+				Com_Printf (MSG_WARNING,
+							"> WARNING: overwritting the previous mapping of address %s:%hu\n",
+							inet_ntoa (new_map->from.sin_addr),
+							ntohs (new_map->from.sin_port));
 
 				*prev = addrmap->next;
 				free (addrmap->from_string);
@@ -511,9 +519,11 @@ static void Sv_InsertAddrmapIntoList (addrmap_t* new_map)
 
 	strncpy (from_addr, inet_ntoa (new_map->from.sin_addr), sizeof(from_addr) - 1);
 	from_addr[sizeof(from_addr) - 1] = '\0';
-	MsgPrint (MSG_NORMAL, "> Address \"%s\" (%s:%hu) mapped to \"%s\" (%s:%hu)\n",
-			  new_map->from_string, from_addr, ntohs (new_map->from.sin_port),
-			  new_map->to_string, inet_ntoa (new_map->to.sin_addr), ntohs (new_map->to.sin_port));
+	Com_Printf (MSG_NORMAL, "> Address \"%s\" (%s:%hu) mapped to \"%s\" (%s:%hu)\n",
+				new_map->from_string,
+				from_addr, ntohs (new_map->from.sin_port),
+				new_map->to_string,
+				inet_ntoa (new_map->to.sin_addr), ntohs (new_map->to.sin_port));
 }
 
 
@@ -575,16 +585,16 @@ static qboolean Sv_ResolveAddrmap (addrmap_t* addrmap)
 	if (addrmap->from.sin_addr.s_addr == 0 ||
 		addrmap->to.sin_addr.s_addr == 0)
 	{
-		MsgPrint (MSG_ERROR,
-				  "> ERROR: Mapping from or to 0.0.0.0 is forbidden\n");
+		Com_Printf (MSG_ERROR,
+					"> ERROR: Mapping from or to 0.0.0.0 is forbidden\n");
 		return false;
 	}
 
 	// Do NOT allow mapping to loopback addresses
 	if ((ntohl (addrmap->to.sin_addr.s_addr) >> 24) == 127)
 	{
-		MsgPrint (MSG_ERROR,
-				  "> ERROR: Mapping to a loopback address is forbidden\n");
+		Com_Printf (MSG_ERROR,
+					"> ERROR: Mapping to a loopback address is forbidden\n");
 		return false;
 	}
 
@@ -666,17 +676,19 @@ qboolean Sv_Init (void)
 	servers = malloc (array_size);
 	if (!servers)
 	{
-		MsgPrint (MSG_ERROR,
-				  "> ERROR: can't allocate the servers array (%s)\n",
-				  strerror (errno));
+		Com_Printf (MSG_ERROR,
+					"> ERROR: can't allocate the servers array (%s)\n",
+					  strerror (errno));
 		return false;
 	}
 	memset (servers, 0, array_size);
-	MsgPrint (MSG_NORMAL, "> %u server records allocated (maximum number per address: ", max_nb_servers);
+	Com_Printf (MSG_NORMAL,
+				"> %u server records allocated (maximum number per address: ",
+				max_nb_servers);
 	if (max_per_address == 0)
-		MsgPrint (MSG_NORMAL, "unlimited)\n");
+		Com_Printf (MSG_NORMAL, "unlimited)\n");
 	else
-		MsgPrint (MSG_NORMAL, "%u)\n", max_per_address);
+		Com_Printf (MSG_NORMAL, "%u)\n", max_per_address);
 
 	// Allocate the hash tables and clean them
 	hash_table_size = (1 << hash_size);
@@ -726,9 +738,9 @@ server_t* Sv_GetByAddr (const struct sockaddr_storage* address, socklen_t addrle
 	assert (nb_same_address <= max_per_address || max_per_address == 0);
 	if (nb_same_address >= max_per_address && max_per_address != 0)
 	{
-		MsgPrint (MSG_WARNING,
-				  "> WARNING: server %s isn't allowed (max number of servers reached for this address)\n",
-				  peer_address);
+		Com_Printf (MSG_WARNING,
+					"> WARNING: server %s isn't allowed (max number of servers reached for this address)\n",
+					peer_address);
 		return NULL;
 	}
 
@@ -742,9 +754,9 @@ server_t* Sv_GetByAddr (const struct sockaddr_storage* address, socklen_t addrle
 			if ((ntohl (addr_in->sin_addr.s_addr) >> 24) == 127 &&
 				addrmap == NULL)
 			{
-				MsgPrint (MSG_WARNING,
-						  "> WARNING: server %s isn't allowed (loopback address without address mapping)\n",
-						  peer_address);
+				Com_Printf (MSG_WARNING,
+							"> WARNING: server %s isn't allowed (loopback address without address mapping)\n",
+							peer_address);
 				return NULL;
 			}
 		}
@@ -758,9 +770,9 @@ server_t* Sv_GetByAddr (const struct sockaddr_storage* address, socklen_t addrle
 			if (memcmp (&addr_in6->sin6_addr.s6_addr, &in6addr_loopback.s6_addr,
 						sizeof(addr_in6->sin6_addr.s6_addr)) == 0)
 			{
-				MsgPrint (MSG_WARNING,
-						  "> WARNING: server %s isn't allowed (IPv6 loopback address)\n",
-						  peer_address);
+				Com_Printf (MSG_WARNING,
+							"> WARNING: server %s isn't allowed (IPv6 loopback address)\n",
+							peer_address);
 				return NULL;
 			}
 		}
@@ -776,9 +788,9 @@ server_t* Sv_GetByAddr (const struct sockaddr_storage* address, socklen_t addrle
 		Sv_CheckTimeouts ();
 		if (nb_servers == max_nb_servers)
 		{
-			MsgPrint (MSG_WARNING,
-					  "> WARNING: can't add server %s (server list is full)\n",
-					  peer_address);
+			Com_Printf (MSG_WARNING,
+						"> WARNING: can't add server %s (server list is full)\n",
+						peer_address);
 			return NULL;
 		}
 	}
@@ -824,13 +836,13 @@ server_t* Sv_GetByAddr (const struct sockaddr_storage* address, socklen_t addrle
 
 	nb_servers++;
 
-	MsgPrint (MSG_NORMAL,
-			  "> New server added: %s. %u server(s) now registered, including %u at this IP address\n",
-			  peer_address, nb_servers, nb_same_address + 1);
-	MsgPrint (MSG_DEBUG,
-			  "  - index: %u\n"
-			  "  - hash: 0x%04X\n",
-			  (unsigned int)(sv - servers), hash);
+	Com_Printf (MSG_NORMAL,
+				"> New server added: %s. %u server(s) now registered, including %u for this address quota\n",
+				peer_address, nb_servers, nb_same_address + 1);
+	Com_Printf (MSG_DEBUG,
+				"  - index: %u\n"
+				"  - hash: 0x%04X\n",
+				(unsigned int)(sv - servers), hash);
 
 	return sv;
 }
@@ -885,8 +897,8 @@ void Sv_PrintServerList (msg_level_t msg_level)
 {
 	int ind;
 
-	MsgPrint (msg_level, "\n> %u servers registered (time: %lu):\n",
-			  nb_servers, (unsigned long)crt_time);
+	Com_Printf (msg_level, "\n> %u servers registered (time: %lu):\n",
+				nb_servers, (unsigned long)crt_time);
 
 	for (ind = 0; ind <= last_used_slot; ind++)
 		if (Sv_IsActive(ind))
@@ -894,9 +906,11 @@ void Sv_PrintServerList (msg_level_t msg_level)
 			const server_t* sv = &servers[ind];
 			const char* state_string;
 
-			MsgPrint (msg_level, " * %s", Sys_SockaddrToString (&sv->address));
+			Com_Printf (msg_level, " * %s",
+						Sys_SockaddrToString (&sv->address));
 			if (sv->addrmap != NULL)
-				MsgPrint (msg_level, ", mapped to %s", sv->addrmap->to_string);
+				Com_Printf (msg_level, ", mapped to %s",
+							sv->addrmap->to_string);
 
 			assert(sv->state > sv_state_unused_slot);
 			assert(sv->state <= sv_state_full);
@@ -922,15 +936,15 @@ void Sv_PrintServerList (msg_level_t msg_level)
 					break;
 			}
 
-			MsgPrint (msg_level,
-					  " (timeout: %lu)\n"
-					  "\tgame: \"%s\" (protocol: %d)\n"
-					  "\tstate: %s\n"
-					  "\tchallenge: \"%s\" (timeout: %lu)\n",
-					  (unsigned long)sv->timeout,
-					  sv->gamename, sv->protocol,
-					  state_string,
-					  sv->challenge, (unsigned long)sv->challenge_timeout);
+			Com_Printf (msg_level,
+						" (timeout: %lu)\n"
+						"\tgame: \"%s\" (protocol: %d)\n"
+						"\tstate: %s\n"
+						"\tchallenge: \"%s\" (timeout: %lu)\n",
+						(unsigned long)sv->timeout,
+						sv->gamename, sv->protocol,
+						state_string,
+						sv->challenge, (unsigned long)sv->challenge_timeout);
 		}
 }
 
@@ -954,8 +968,8 @@ qboolean Sv_AddAddressMapping (const char* mapping)
 	map_string = strdup (mapping);
 	if (map_string == NULL)
 	{
-		MsgPrint (MSG_ERROR,
-				  "> ERROR: can't allocate address mapping string\n");
+		Com_Printf (MSG_ERROR,
+					"> ERROR: can't allocate address mapping string\n");
 		return false;
 	}
 
@@ -963,8 +977,8 @@ qboolean Sv_AddAddressMapping (const char* mapping)
 	to_ip = strchr (map_string, '=');
 	if (to_ip == NULL)
 	{
-		MsgPrint (MSG_ERROR,
-				  "> ERROR: invalid syntax in address mapping string\n");
+		Com_Printf (MSG_ERROR,
+					"> ERROR: invalid syntax in address mapping string\n");
 		free (map_string);
 		return false;
 	}
@@ -974,8 +988,8 @@ qboolean Sv_AddAddressMapping (const char* mapping)
 	addrmap = malloc (sizeof (*addrmap));
 	if (addrmap == NULL)
 	{
-		MsgPrint (MSG_ERROR,
-				  "> ERROR: can't allocate address mapping structure\n");
+		Com_Printf (MSG_ERROR,
+					"> ERROR: can't allocate address mapping structure\n");
 		free (map_string);
 		return false;
 	}
@@ -986,8 +1000,8 @@ qboolean Sv_AddAddressMapping (const char* mapping)
 	free (map_string);
 	if (addrmap->from_string == NULL || addrmap->to_string == NULL)
 	{
-		MsgPrint (MSG_ERROR,
-				  "> ERROR: can't allocate address mapping strings\n");
+		Com_Printf (MSG_ERROR,
+					"> ERROR: can't allocate address mapping strings\n");
 		free (addrmap->to_string);
 		free (addrmap->from_string);
 		return false;
