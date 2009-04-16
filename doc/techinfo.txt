@@ -1,10 +1,9 @@
 
-              Dpmaster, a master server supporting the DarkPlaces
-                and Quake III Arena master server protocols
-           ---------------------------------------------------------
+                         Dpmaster, an open master server
+                         -------------------------------
 
-                             Technical information
-                             ---------------------
+                              Technical information
+                              ---------------------
 
 
 * COMPILING DPMASTER:
@@ -53,9 +52,10 @@ from a master server. All messages start with 4 bytes set to 0xFF (character
 
 The 2 basic types of messages which are likely to cause compliance problems with
 Q3A-compatible tools are: "heartbeat" (requires a different protocol string) and
-"getservers" (requires a game name before the protocol number). Also, note that
-the "infoResponse" messages may be considered invalid by programs which require
-precisely the key names used by Q3A in the infostring.
+"getservers" (requires a game name before the protocol number, and may contain
+unknown filtering options). Also, note that the "infoResponse" messages may be
+considered invalid by programs which require precisely the key names used by Q3A
+in the infostring.
 
     1) heartbeat:
 
@@ -126,6 +126,12 @@ precisely the key names used by Q3A in the infostring.
             number) and "clients" (the current number of clients on the
             server) must also be present. Except for Q3A, "gamename" (the game
             name) is mandatory too, and its value must not contain whitespaces.
+            
+            Starting from version 2.0, dpmaster also saves the value of the
+            "gametype" key, which may be used as a filter in server list queries
+            (see the "getservers" message description below for more details).
+            If no "gametype" key is present in the response message, this number
+            defaults to 0.
 
     4) getservers:
 
@@ -137,9 +143,9 @@ precisely the key names used by Q3A in the infostring.
 
         - samples:
 
-            "\xFF\xFF\xFF\xFFgetservers 67 empty full"   (Q3A)
-            "\xFF\xFF\xFF\xFFgetservers Nexuiz 3"        (DP running Nexuiz)
-            "\xFF\xFF\xFF\xFFgetservers qfusion 39 full" (QFusion)
+            "\xFF\xFF\xFF\xFFgetservers 67 ffa empty full" (Q3A)
+            "\xFF\xFF\xFF\xFFgetservers Nexuiz 3"          (DP running Nexuiz)
+            "\xFF\xFF\xFF\xFFgetservers qfusion 39 full"   (QFusion)
 
         - syntax:
 
@@ -147,6 +153,14 @@ precisely the key names used by Q3A in the infostring.
             and/or "full" depending on whether or not the client also wants to
             get empty or full servers. Except for Q3A, the client has to specify
             its game name, right before the protocol number.
+
+            Starting from dpmaster version 2.0, you may also add in the option
+            list at most one gametype filter "gametype=X", where X is the
+            gametype number a server must have declared to be part of the 
+            returned list. 4 other keywords are allowed as shortcuts to this
+            filter, for compatibility with Q3A: "ffa", "tourney", "team" and
+            "ctf" are equivalent to "gametype=0", "gametype=1", "gametype=3" and
+            "gametype=4" respectively.
 
     5) getserversResponse:
 
@@ -184,16 +198,17 @@ precisely the key names used by Q3A in the infostring.
         - syntax:
 
             The message must contain the game name, a protocol version, and
-            optionally a list of whitespace-separated filtering options. There
-            are currently 4 supported options: "empty" and "full", as in the
-            "getservers" message, and "ipv4" and "ipv6" to ask specifically for
-            servers using this/these protocol(s). If no protocol name appears
-            in the list, the master server won't filter the servers by protocol,
-            behaving in practice as if all protocols appeared in the list.
+            optionally a list of whitespace-separated filtering options. All
+            those defined for the "getservers" message ("empty", "full,
+            "gametype=X" and its shortcuts) are currently supported, plus 2
+            other ones: "ipv4" and "ipv6" to ask specifically for servers using
+            this/these protocol(s). If no protocol name appears in the list, the
+            master server won't filter the servers by protocol, behaving in
+            practice as if all protocols appeared in the list.
 
-            As you can see in this sample, since the game name is mandatory for
-            the extended query, you'll have to use the game name "Quake3Arena"
-            explicitely if you want to ask for Q3A-compatible IPv6 servers.
+            As you can see in this sample, since the game name is mandatory in
+            an extended query, you'll have to use the game name "Quake3Arena"
+            explicitely if you want to ask for Q3A servers.
 
     7) getserversExtResponse:
 

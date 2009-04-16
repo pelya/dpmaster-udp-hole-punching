@@ -27,6 +27,7 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <limits.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -67,8 +68,8 @@ typedef struct
 	const char* help_desc;		// help string printed by PrintHelp (description)
 	int	help_param [2];			// optional parameters for the "help_desc" string
 	char short_name;			// may be '\0' if it has no short name
-	qboolean accept_param;		// "true" if the option may have 1 parameter
-	qboolean need_param;		// "true" if the option requires 1 parameter
+	unsigned int min_params;	// minimum number of parameters for this option
+	unsigned int max_params;	// maximum number of parameters for this option
 }  cmdlineopt_t;
 
 // Command line status
@@ -79,9 +80,10 @@ typedef enum
 
 	// Errors
 	CMDLINE_STATUS_INVALID_OPT,
-	CMDLINE_STATUS_OPT_NEEDS_PARAM,
-	CMDLINE_STATUS_OPT_REFUSES_PARAM,
-	CMDLINE_STATUS_INVALID_PARAM,
+	CMDLINE_STATUS_NOT_ENOUGH_OPT_PARAMS,
+	CMDLINE_STATUS_TOO_MUCH_OPT_PARAMS,
+	CMDLINE_STATUS_INVALID_OPT_PARAMS,
+	CMDLINE_STATUS_NOT_ENOUGH_MEMORY,
 } cmdline_status_t;
 
 

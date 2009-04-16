@@ -95,6 +95,10 @@ SOURCE=.\dpmaster.c
 # End Source File
 # Begin Source File
 
+SOURCE=.\games.c
+# End Source File
+# Begin Source File
+
 SOURCE=.\messages.c
 # End Source File
 # Begin Source File
@@ -112,6 +116,10 @@ SOURCE=.\system.c
 # Begin Source File
 
 SOURCE=.\common.h
+# End Source File
+# Begin Source File
+
+SOURCE=.\games.h
 # End Source File
 # Begin Source File
 

@@ -70,17 +70,18 @@ typedef enum
 // Server properties
 typedef struct server_s
 {
+	struct sockaddr_storage address;
 	struct server_s* next;
 	struct server_s** prev_ptr;
-	server_state_t state;
-	struct sockaddr_storage address;
-	socklen_t addrlen;
-	int protocol;
-	char challenge [CHALLENGE_MAX_LENGTH];
+	const struct addrmap_s* addrmap;
 	time_t timeout;
 	time_t challenge_timeout;
+	socklen_t addrlen;
+	int protocol;
+	int gametype;
+	server_state_t state;
+	char challenge [CHALLENGE_MAX_LENGTH];
 	char gamename [GAMENAME_LENGTH];
-	const struct addrmap_s* addrmap;
 } server_t;
 
 

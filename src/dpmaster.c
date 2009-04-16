@@ -2,8 +2,7 @@
 /*
 	dpmaster.c
 
-	A master server for DarkPlaces, Quake 3 Arena
-	and any game supporting the DarkPlaces master server protocol
+	An open master server
 
 	Copyright (C) 2002-2009  Mathieu Olivier
 
@@ -25,6 +24,7 @@
 
 #include "common.h"
 #include "system.h"
+#include "games.h"
 #include "messages.h"
 #include "servers.h"
 
@@ -47,8 +47,20 @@ static const cmdlineopt_t cmdline_options [] =
 		"   FOR DEBUGGING PURPOSES ONLY!",
 		{ 0, 0 },
 		'\0',
-		false,
-		false
+		0,
+		0
+	},
+	{
+		"game-policy",
+		"<accept|reject> <game_name> ...",
+		"Accept or reject the listed games. Can be specified more than once only\n"
+		"   if all instances set the same policy (\"accept\" or \"reject\").\n"
+		"    All non-listed games will implicitely get the opposite policy.\n"
+		,
+		{ 0, 0 },
+		'\0',
+		2,
+		UINT_MAX
 	},
 	{
 		"help",
@@ -56,8 +68,8 @@ static const cmdlineopt_t cmdline_options [] =
 		"This help text",
 		{ 0, 0 },
 		'h',
-		false,
-		false
+		0,
+		0
 	},
 	{
 		"hash-ports",
@@ -67,8 +79,8 @@ static const cmdlineopt_t cmdline_options [] =
 		"   FOR DEBUGGING PURPOSES ONLY!",
 		{ 0, 0 },
 		'\0',
-		false,
-		false
+		0,
+		0
 	},
 	{
 		"hash-size",
@@ -76,8 +88,8 @@ static const cmdlineopt_t cmdline_options [] =
 		"Hash size in bits, up to %d (default: %d)",
 		{ MAX_HASH_SIZE, DEFAULT_HASH_SIZE },
 		'H',
-		true,
-		true
+		1,
+		1
 	},
 	{
 		"listen",
@@ -86,8 +98,8 @@ static const cmdlineopt_t cmdline_options [] =
 		"   You can listen on up to %d addresses",
 		{ MAX_LISTEN_SOCKETS, 0 },
 		'l',
-		true,
-		true
+		1,
+		1
 	},
 	{
 		"log",
@@ -95,8 +107,8 @@ static const cmdlineopt_t cmdline_options [] =
 		"Enable the logging to disk",
 		{ 0, 0 },
 		'L',
-		false,
-		false
+		0,
+		0
 	},
 	{
 		"log-file",
@@ -104,8 +116,8 @@ static const cmdlineopt_t cmdline_options [] =
 		"Use <file_path> as the log file (default: " DEFAULT_LOG_FILE ")",
 		{ 0, 0 },
 		'\0',
-		true,
-		true
+		1,
+		1
 	},
 	{
 		"map",
@@ -114,8 +126,8 @@ static const cmdlineopt_t cmdline_options [] =
 		"   Addresses can contain a port number (ex: myaddr.net:1234)",
 		{ 0, 0 },
 		'm',
-		true,
-		true
+		1,
+		1
 	},
 	{
 		"max-servers",
@@ -123,8 +135,8 @@ static const cmdlineopt_t cmdline_options [] =
 		"Maximum number of servers recorded (default: %d)",
 		{ DEFAULT_MAX_NB_SERVERS, 0 },
 		'n',
-		true,
-		true
+		1,
+		1
 	},
 	{
 		"max-servers-per-addr",
@@ -133,8 +145,8 @@ static const cmdlineopt_t cmdline_options [] =
 		"   0 means there's no limit",
 		{ DEFAULT_MAX_NB_SERVERS_PER_ADDRESS, 0 },
 		'N',
-		true,
-		true
+		1,
+		1
 	},
 	{
 		"port",
@@ -142,8 +154,8 @@ static const cmdlineopt_t cmdline_options [] =
 		"Default network port (default value: %d)",
 		{ DEFAULT_MASTER_PORT, 0 },
 		'p',
-		true,
-		true
+		1,
+		1
 	},
 	{
 		"verbose",
@@ -151,8 +163,8 @@ static const cmdlineopt_t cmdline_options [] =
 		"Verbose level, up to %d (default: %d; no value means max)",
 		{ MSG_DEBUG, MSG_NORMAL },
 		'v',
-		true,
-		false
+		0,
+		1
 	},
 	{
 		NULL,
@@ -160,8 +172,8 @@ static const cmdlineopt_t cmdline_options [] =
 		NULL,
 		{ 0, 0 },
 		'\0',
-		false,
-		false
+		0,
+		0
 	}
 };
 
@@ -239,8 +251,7 @@ static void PrintBanner (void)
 	{
 		Com_Printf (MSG_NORMAL,
 					"\n"
-					"dpmaster, a master server supporting the DarkPlaces\n"
-					"and Quake III Arena master server protocols\n"
+					"dpmaster, an open master server\n"
 					"(version " VERSION ", compiled the " __DATE__ " at " __TIME__ ")\n");
 
 		banner_printed = true;
@@ -253,21 +264,21 @@ static void PrintBanner (void)
 Cmdline_Option
 
 Parse a system-independent command line option
-"param" may be NULL, if the option doesn't need a parameter
 ====================
 */
-static cmdline_status_t Cmdline_Option (const cmdlineopt_t* opt, const char* param)
+static cmdline_status_t Cmdline_Option (const cmdlineopt_t* opt, const char** params, unsigned int nb_params)
 {
 	const char* opt_name;
 	
-	assert (param == NULL || opt->accept_param);
-	assert (param != NULL || ! opt->need_param);
-
 	opt_name = opt->long_name;
 
 	// Are servers on loopback interfaces allowed?
 	if (strcmp (opt_name, "allow-loopback") == 0)
 		allow_loopback = true;
+
+	// Game policy
+	else if (strcmp (opt_name, "game-policy") == 0)
+		return Game_DeclarePolicy (params[0], &params[1], nb_params - 1);
 
 	// Help
 	else if (strcmp (opt_name, "help") == 0)
@@ -284,23 +295,26 @@ static cmdline_status_t Cmdline_Option (const cmdlineopt_t* opt, const char* par
 		char* end_ptr;
 		unsigned int hash_size;
 
-		start_ptr = param;
+		start_ptr = params[0];
 		hash_size = (unsigned int)strtol (start_ptr, &end_ptr, 0);
 		if (end_ptr == start_ptr || *end_ptr != '\0')
-			return CMDLINE_STATUS_INVALID_PARAM;
+			return CMDLINE_STATUS_INVALID_OPT_PARAMS;
 
 		if (! Sv_SetHashSize (hash_size))
-			return CMDLINE_STATUS_INVALID_PARAM;
+			return CMDLINE_STATUS_INVALID_OPT_PARAMS;
 	}
 
 	// Listen address
 	else if (strcmp (opt_name, "listen") == 0)
 	{
+		const char* param;
+		
+		param = params[0];
 		if (param[0] == '\0')
-			return CMDLINE_STATUS_INVALID_PARAM;
+			return CMDLINE_STATUS_INVALID_OPT_PARAMS;
 
 		if (! Sys_DeclareListenAddress (param))
-			return CMDLINE_STATUS_INVALID_PARAM;
+			return CMDLINE_STATUS_INVALID_OPT_PARAMS;
 	}
 
 	// Log
@@ -310,15 +324,15 @@ static cmdline_status_t Cmdline_Option (const cmdlineopt_t* opt, const char* par
 	// Log file
 	else if (strcmp (opt_name, "log-file") == 0)
 	{
-		if (! Com_SetLogFilePath (param))
-			return CMDLINE_STATUS_INVALID_PARAM;
+		if (! Com_SetLogFilePath (params[0]))
+			return CMDLINE_STATUS_INVALID_OPT_PARAMS;
 	}
 
 	// Address mapping
 	else if (strcmp (opt_name, "map") == 0)
 	{
-		if (! Sv_AddAddressMapping (param))
-			return CMDLINE_STATUS_INVALID_PARAM;
+		if (! Sv_AddAddressMapping (params[0]))
+			return CMDLINE_STATUS_INVALID_OPT_PARAMS;
 	}
 
 	// Maximum number of servers
@@ -328,13 +342,13 @@ static cmdline_status_t Cmdline_Option (const cmdlineopt_t* opt, const char* par
 		char* end_ptr;
 		unsigned int max_nb_servers;
 
-		start_ptr = param;
+		start_ptr = params[0];
 		max_nb_servers = (unsigned int)strtol (start_ptr, &end_ptr, 0);
 		if (end_ptr == start_ptr || *end_ptr != '\0')
-			return CMDLINE_STATUS_INVALID_PARAM;
+			return CMDLINE_STATUS_INVALID_OPT_PARAMS;
 		
 		if (! Sv_SetMaxNbServers (max_nb_servers))
-			return CMDLINE_STATUS_INVALID_PARAM;
+			return CMDLINE_STATUS_INVALID_OPT_PARAMS;
 	}
 
 	// Maximum number of servers per address
@@ -344,13 +358,13 @@ static cmdline_status_t Cmdline_Option (const cmdlineopt_t* opt, const char* par
 		char* end_ptr;
 		unsigned int max_per_address;
 		
-		start_ptr = param;
+		start_ptr = params[0];
 		max_per_address = (unsigned int)strtol (start_ptr, &end_ptr, 0);
 		if (end_ptr == start_ptr || *end_ptr != '\0')
-			return CMDLINE_STATUS_INVALID_PARAM;
+			return CMDLINE_STATUS_INVALID_OPT_PARAMS;
 		
 		if (! Sv_SetMaxNbServersPerAddress (max_per_address))
-			return CMDLINE_STATUS_INVALID_PARAM;
+			return CMDLINE_STATUS_INVALID_OPT_PARAMS;
 	}
 
 	// Port number
@@ -360,10 +374,10 @@ static cmdline_status_t Cmdline_Option (const cmdlineopt_t* opt, const char* par
 		char* end_ptr;
 		unsigned short port_num;
 		
-		start_ptr = param;
+		start_ptr = params[0];
 		port_num = (unsigned short)strtol (start_ptr, &end_ptr, 0);
 		if (end_ptr == start_ptr || *end_ptr != '\0' || port_num == 0)
-			return CMDLINE_STATUS_INVALID_PARAM;
+			return CMDLINE_STATUS_INVALID_OPT_PARAMS;
 
 		master_port = port_num;
 	}
@@ -372,17 +386,17 @@ static cmdline_status_t Cmdline_Option (const cmdlineopt_t* opt, const char* par
 	else if (strcmp (opt_name, "verbose") == 0)
 	{
 		// If a verbose level has been specified
-		if (param != NULL)
+		if (nb_params > 0)
 		{
 			const char* start_ptr;
 			char* end_ptr;
 			unsigned int vlevel;
 
-			start_ptr = param;
+			start_ptr = params[0];
 			vlevel = (unsigned int)strtol (start_ptr, &end_ptr, 0);
 			if (end_ptr == start_ptr || *end_ptr != '\0' ||
 				vlevel > MSG_DEBUG)
-				return CMDLINE_STATUS_INVALID_PARAM;
+				return CMDLINE_STATUS_INVALID_OPT_PARAMS;
 			max_msg_level = vlevel;
 		}
 		else
@@ -458,7 +472,7 @@ static cmdline_status_t ParseCommandLine (int argc, const char* argv [])
 		// If it doesn't even look like an option, why bother?
 		if (crt_arg[0] == '-' && crt_arg[1] != '\0')
 		{
-			const char* param = NULL;
+			const char* first_param = NULL;
 			qboolean sys_option;
 
 			// If it's a long option
@@ -481,7 +495,7 @@ static cmdline_status_t ParseCommandLine (int argc, const char* argv [])
 					memcpy (option_name, &crt_arg[2], opt_size);
 					option_name[opt_size] = '\0';
 
-					param = equal_char + 1;
+					first_param = equal_char + 1;
 				}
 				else
 				{
@@ -520,7 +534,7 @@ static cmdline_status_t ParseCommandLine (int argc, const char* argv [])
 				// Extract the attached parameter if any
 				assert (crt_arg[1] != '\0');
 				if (crt_arg[2] != '\0')
-					param = &crt_arg[2];
+					first_param = &crt_arg[2];
 
 				// Cross-platform options
 				for (cmd_ind = 0; cmdline_options[cmd_ind].long_name != NULL; cmd_ind++)
@@ -547,35 +561,73 @@ static cmdline_status_t ParseCommandLine (int argc, const char* argv [])
 
 			if (cmdline_opt != NULL)
 			{
-				qboolean has_param;
+				unsigned int nb_params;
+				int param_ind;
 
-				has_param = (param != NULL || (ind + 1 < argc &&
-							 argv[ind + 1][0] != '\0' && argv[ind + 1][0] != '-'));
+				nb_params = (first_param != NULL ? 1 : 0);
+				param_ind = ind + 1 - nb_params + cmdline_opt->min_params;
 
-				// Check the number of parameters
-				if ((! cmdline_opt->need_param || has_param) &&
-					(cmdline_opt->accept_param || ! has_param))
+				// Do we have enough arguments to provide this option with the parameters it needs?
+				if (param_ind <= argc)
 				{
-					if (has_param && param == NULL)
-					{
-						ind++;
-						param = argv[ind];
-					}
-
-					if (sys_option)
-						cmdline_status = Sys_Cmdline_Option (cmdline_opt, param);
+					// If we already have a first parameter, start looking at the second one
+					if (nb_params == 1 && cmdline_opt->min_params == 0)
+						param_ind++;
 					else
-						cmdline_status = Cmdline_Option (cmdline_opt, param);
+						nb_params = cmdline_opt->min_params;
 
-					ind++;
+					// Gather as many parameters as possible
+					while (param_ind < argc && argv[param_ind][0] != '-')
+					{
+						param_ind++;
+						nb_params++;
+					}
+					
+					// Don't we have too many parameters for this option?
+					if (nb_params <= cmdline_opt->max_params)
+					{
+						const char** opt_params;
+						qboolean free_opt_params = false;
+						
+						if (first_param != NULL)
+						{
+							if (nb_params > 1)
+							{
+								// For the most complex cases, we have to allocate a temporary array
+								opt_params = malloc (nb_params * sizeof (const char*));
+								if (opt_params != NULL)
+								{
+									free_opt_params = true;
+									opt_params[0] = first_param;
+									memcpy (&opt_params[1], argv[ind + 1], (nb_params - 1) * sizeof (const char*));
+								}
+								else
+									cmdline_status = CMDLINE_STATUS_NOT_ENOUGH_MEMORY;
+							}
+							else
+								// Use "first_param" directly if it's the only parameter
+								opt_params = &first_param;
+						}
+						// Use "argv" directly when it's possible
+						else
+							opt_params = &argv[ind + 1];
+
+						if (sys_option)
+							cmdline_status = Sys_Cmdline_Option (cmdline_opt, opt_params, nb_params);
+						else
+							cmdline_status = Cmdline_Option (cmdline_opt, opt_params, nb_params);
+
+						if (cmdline_status == CMDLINE_STATUS_OK)
+							ind = param_ind;
+
+						if (free_opt_params)
+							free (opt_params);
+					}
+					else
+						cmdline_status = CMDLINE_STATUS_TOO_MUCH_OPT_PARAMS;
 				}
 				else
-				{
-					if (cmdline_opt->need_param && ! has_param)
-						cmdline_status = CMDLINE_STATUS_OPT_NEEDS_PARAM;
-					else
-						cmdline_status = CMDLINE_STATUS_OPT_REFUSES_PARAM;
-				}
+					cmdline_status = CMDLINE_STATUS_NOT_ENOUGH_OPT_PARAMS;
 			}
 		}
 	}
@@ -597,19 +649,24 @@ static cmdline_status_t ParseCommandLine (int argc, const char* argv [])
 				errormsg_part2 = "\" is unknown";
 				break;
 
-			case CMDLINE_STATUS_OPT_NEEDS_PARAM:
+			case CMDLINE_STATUS_NOT_ENOUGH_OPT_PARAMS:
 				errormsg_part1 = "the option \"--";
-				errormsg_part2 = "\" needs a parameter";
+				errormsg_part2 = "\" needs more parameters";
 				break;
 
-			case CMDLINE_STATUS_OPT_REFUSES_PARAM:
+			case CMDLINE_STATUS_TOO_MUCH_OPT_PARAMS:
 				errormsg_part1 = "the option \"--";
-				errormsg_part2 = "\" doesn't take any parameter";
+				errormsg_part2 = "\" doesn't take so many parameters";
 				break;
 
-			case CMDLINE_STATUS_INVALID_PARAM:
-				errormsg_part1 = "the parameter of the option \"--";
-				errormsg_part2 = "\" is invalid";
+			case CMDLINE_STATUS_INVALID_OPT_PARAMS:
+				errormsg_part1 = "the parameter(s) of the option \"--";
+				errormsg_part2 = "\" is/are invalid";
+				break;
+
+			case CMDLINE_STATUS_NOT_ENOUGH_MEMORY:
+				errormsg_part1 = "not enough memory for parsing the option \"--";
+				errormsg_part2 = "\"";
 				break;
 
 			default:

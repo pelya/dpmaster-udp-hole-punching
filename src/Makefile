@@ -17,7 +17,7 @@ CC=gcc
 CFLAGS_COMMON=-Wall -Wdeclaration-after-statement
 CFLAGS_DEBUG=$(CFLAGS_COMMON) -g
 CFLAGS_RELEASE=$(CFLAGS_COMMON) -O2 -DNDEBUG
-OBJECTS=common.o dpmaster.o messages.o servers.o system.o
+OBJECTS=common.o dpmaster.o games.o messages.o servers.o system.o
 
 ##### Commands #####
 

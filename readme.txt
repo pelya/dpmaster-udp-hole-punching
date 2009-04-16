@@ -1,38 +1,35 @@
 
-              Dpmaster, a master server supporting the DarkPlaces
-                and Quake III Arena master server protocols
-           ---------------------------------------------------------
+                         Dpmaster, an open master server
+                         -------------------------------
 
-                              General information
-                              -------------------
+                               General information
+                               -------------------
 
 
 * INTRODUCTION:
 
-Dpmaster is a master server written from scratch for LordHavoc's great Quake 1
-engine: DarkPlaces. The master protocol used by DarkPlaces and dpmaster is
-heavily based on the Quake III Arena master server protocol, that's why
-dpmaster supports DP servers and Q3A servers at the same time.
+Dpmaster is a lightweight master server written from scratch for LordHavoc's
+game engine DarkPlaces. It is an open master server because of its free source
+code and documentation, and because its Quake III Arena-like protocol allows it
+to fully support new games without having to restart or reconfigure it. Run and
+forget.
 
-An interesting property of dpmaster and its associated network protocol is that
-it supports any game using its protocol out of the box. As long as you send
-your game name correctly in the "infoResponse" and "getservers" messages (take
-a look at the "PROTOCOL" section in "doc/techinfo.txt" for further
-explanations), any running dpmaster will accept and register any game. Of
-course, it doesn't exempt you from asking someone the permission to use his
-running instance of dpmaster. You don't want to be rude and get banned from
-his master server, do you?
+Aside from its own protocol, dpmaster supports the classic Quake III Arena
+protocol. Game engines supporting the DP master server protocol currently
+include DarkPlaces and all its derived games (such as Nexuiz and Transfusion),
+QFusion and most of its derived games (such as Warsow), and FTE QuakeWorld.
+IOQuake3 uses it for its IPv6-enabled servers and clients.
 
-Game engines supporting the DP master server protocol currently include
-DarkPlaces and all its derived games (such as Nexuiz and Transfusion), QFusion
-and most of its derived games (such as Warsow), and FTE QuakeWorld.
+If you want to use the DP master protocol in one of your software, take a look
+at the "PROTOCOL" section in "doc/techinfo.txt" for further explanations. It is
+easy to implement, and if you ask politely, chances are you will be able to find
+someone that will let you use his running dpmaster if you can't get your own.
 
-Although dpmaster is being developed primarily on a Linux machine (i386), it
+Although dpmaster is being developed primarily on an x86 Linux machine, it
 should compile and run at least on any operating system from the Win32 or UNIX
 family. Take a look at the "COMPILING DPMASTER" section in "doc/techinfo.txt"
 for more information. Be aware that some options are only available on UNIXes,
-including all security-related options. Take a look at the "SECURITY" section
-below for more information.
+including all security-related options - see the "SECURITY" section below.
 
 The source code of dpmaster is available under the GNU General Public License.
 
@@ -47,11 +44,12 @@ All options have a long name (a string), and most of them also have a short name
 hyphens and short names by 1 hyphen. For instance, you can run dpmaster as a
 daemon on UNIX systems by calling either "dpmaster -D" or "dpmaster --daemon".
 
-Most options have an associated parameter. You can either separate the option
-name and its parameter by a blank space, or you can append the parameter if the
-option is in its short form, or you can separate them by an equal sign if the
-option is in its long form. For example, these 4 ways of running dpmaster with a
-maximum number of servers of 16 are equivalent:
+A lot of options have one or more associated parameters, separated from the
+option name and from each other by a blank space. Optionally, you are allowed
+to simply append the first parameter to an option name if it is in its short
+form, or to separate it from the option name using an equal sign if it is in its
+long form. For example, these 4 ways of running dpmaster with a maximum number
+of servers of 16 are equivalent:
 
    * dpmaster -n 16
    * dpmaster --max-servers 16
@@ -123,6 +121,43 @@ so be careful with absolute paths. And second, if you put your dpmaster into a
 chroot jail, don't forget when starting or restart the log that its path will
 then be relative to the jail root directory. Watch out for the log directory not
 being created or having wrong permissions in this case.
+
+
+* GAME POLICY:
+
+If you run an instance of dpmaster, we strongly encourage you to let it open to
+any game or player. Dpmaster has been developed for this particular usage and is
+well-suited for it.
+
+That said, if you want to filter which games are allowed or not on your master,
+you can use the "--game-policy" option. It makes dpmaster explicitly accept or
+reject network messages based on the game they are related to. For example:
+
+        dpmaster --game-policy accept Quake3Arena Transfusion
+
+will force dpmaster to accept servers, and answer to requests, only when they're
+related to either Q3A or Transfusion. At the opposite:
+
+        dpmaster --game-policy reject AnnoyingGame1 BoringGame2
+
+will accept any game messages, but those related to either AnnoyingGame1 or
+BoringGame2.
+
+You can have multiple "--game-policy" lists on the same command line, but they
+must all use the same policy ("accept" or "reject").
+
+As you can see in the first example, "Quake3Arena" is the name you'll have to
+use for Q3A. The other game names only depend on what code names they choose to
+advertize their servers and make their requests.
+
+Two final warnings regarding this option. First, be careful, the names are case-
+sensitive. And second, this option expects at least 2 parameters (accept/reject,
+and at least one game name), so this:
+
+        dpmaster --game-policy accept -v -n 200
+
+will make dpmaster accept messages only when they will be related to a game
+called "-v" (certainly not what you want...).
 
 
 * ADDRESS MAPPING:
@@ -198,11 +233,11 @@ Running dpmaster with no "-l" option is (almost) like running it with:
 
 The first option is for listening on all IPv4 interfaces, the second for
 listening on all IPv6 interfaces, both on the default port. The only
-difference with having no "-l" is that dpmaster will abort in this case if IPv4
-or IPv6 isn't supported by your system, as you have explicitely requested those
-network sockets to be opened. Note that if you don't want dpmaster to listen
-on IPv6 interfaces, you can easily do it by only specifying "-l 0.0.0.0" on
-the command line.
+difference between this command line and one without any "--listen" option is
+that dpmaster will abort in the former if IPv4 or IPv6 isn't supported by your
+system, as you have explicitely requested those network sockets to be opened.
+Note that if you don't want dpmaster to listen on IPv6 interfaces, you can
+easily do it by only specifying "-l 0.0.0.0" on the command line.
 
 As usual, you can specify a port number along with an address, by appending
 ":" and then the port. In this case, numeric IPv6 addresses need to be put
@@ -217,19 +252,21 @@ the resolution of this name gives) on port 546.
 
 IPv6 addressing has a few tricky aspects, and zone indices are one of them. If
 you encounter problems when configuring dpmaster for listening on a link-local
-IPv6 address, I recommend that you read the following paragraph on Wikipedia,
-to make sure you use the correct syntax for your link-local address:
-http://en.wikipedia.org/wiki/IPv6#Address_scopes_and_zone_indices
+IPv6 address, I recommend that you take a look at the paragraph regarding IPv6
+zone indices on this Wikipedia article: http://en.wikipedia.org/wiki/IPv6
 
 
 * CHANGES:
 
     - version 2.0-devel:
+        Gametype filter support in the server list queries (see techinfo.txt)
+        New option "--game-policy" to filter games (see GAME POLICY above)
         IPv6 support, including 2 new messages types (see techinfo.txt)
         Logging support (see LOGGING above)
         The default number of servers is now 4096
         Improved listening interface option (see LISTENING INTERFACES above)
         Long format for all command line options (see SYNTAX & OPTIONS above)
+        The server lists are now sent in a semi-random order, for fairness
         The new hash function supports up to 16-bit hashes
         0 is no longer an invalid hash size
         New option "--allow-loopback", for debugging purposes only!
@@ -317,8 +354,8 @@ http://en.wikipedia.org/wiki/IPv6#Address_scopes_and_zone_indices
 You can get more informations and the latest versions of DarkPlaces and
 dpmaster on the DarkPlaces home page: http://icculus.org/twilight/darkplaces/
 
-If dpmaster doesn't fit you needs, please drop me an email. Your opinion may be
-very valuable to me for evolving dpmaster to a better tool.
+If dpmaster doesn't fit your needs, please drop me an email. Your opinion and
+ideas may be very valuable to me for evolving it to a better tool.
 
 
 --

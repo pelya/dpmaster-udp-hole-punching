@@ -28,7 +28,7 @@
 
 // ---------- Constants ---------- //
 
-// Timeout for a newly added server (in secondes)
+// Timeout for a newly added server (in seconds)
 #define TIMEOUT_HEARTBEAT	2
 
 
@@ -52,6 +52,7 @@ static int first_free_slot = 0;  // -1 = no more room
 
 // Variables for Sv_GetFirst, Sv_GetNext and Sv_Remove
 static int crt_server_ind = -1;
+static int last_server_ind = -1;
 
 // List of address mappings. They are sorted by "from" field (IP, then port)
 static addrmap_t* addrmaps = NULL;
@@ -185,6 +186,14 @@ static void Sv_Remove (server_t* sv)
 		{
 			last_used_slot--;
 		} while (last_used_slot >= 0 && servers[last_used_slot].state != sv_state_unused_slot);
+	
+	// If we have removed the end of the server iteration, set it to the new end of the list
+	if (last_server_ind > last_used_slot)
+		last_server_ind = last_used_slot;
+
+	// Same thing for the current iteration value
+	if (crt_server_ind > last_used_slot)
+		crt_server_ind = last_used_slot;
 
 	nb_servers--;
 	Com_Printf (MSG_NORMAL,
@@ -615,7 +624,7 @@ qboolean Sv_SetHashSize (unsigned int size)
 {
 	// Too late? Too small or too big?
 	if (hash_table_ipv4 != NULL || hash_table_ipv6 != NULL ||
-		size < 0 || size > MAX_HASH_SIZE)
+		size > MAX_HASH_SIZE)
 		return false;
 
 	hash_size = size;
@@ -857,8 +866,23 @@ Get the first server in the list
 */
 server_t* Sv_GetFirst (void)
 {
-	crt_server_ind = -1;
+	if (nb_servers <= 0)
+		return NULL;
 
+	// Pick the start of the iteration at random
+	crt_server_ind = rand () % (last_used_slot + 1);
+
+	// Set the end of the iteration 
+	if (crt_server_ind == 0)
+		last_server_ind = last_used_slot;
+	else
+		last_server_ind = crt_server_ind - 1;
+
+	// If this first server is active, returns it
+	if (Sv_IsActive(crt_server_ind))
+		return &servers[crt_server_ind];
+
+	// Else, go on with the iteration
 	return Sv_GetNext ();
 }
 
@@ -875,9 +899,9 @@ server_t* Sv_GetNext (void)
 	assert(last_used_slot >= -1);
 	assert(last_used_slot < (int)max_nb_servers);
 
-	while (crt_server_ind < last_used_slot)
+	while (crt_server_ind != last_server_ind)
 	{
-		crt_server_ind++;
+		crt_server_ind = (crt_server_ind + 1) % (last_used_slot + 1);
 		if (Sv_IsActive(crt_server_ind))
 			return &servers[crt_server_ind];
 	}

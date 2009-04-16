@@ -197,6 +197,7 @@ sub Client_CheckServerList {
 	my $clPropertiesRef = $clientRef->{gameProperties};
 	my $clGamename = $clPropertiesRef->{gamename};
 	my $clProtocol = $clPropertiesRef->{protocol};
+	my $clGametype = $clPropertiesRef->{gametype};
 
 	my $returnValue = 1;
 
@@ -206,10 +207,15 @@ sub Client_CheckServerList {
 		my $svPropertiesRef = $serverRef->{gameProperties};
 		my $svGamename = $svPropertiesRef->{gamename};
 		my $svProtocol = $svPropertiesRef->{protocol};
+		my $svGametype = $svPropertiesRef->{gametype};
+		if (not defined $svGametype) {
+			$svGametype = 0;
+		}
 		
 		# Skip this server if it doesn't match the conditions
 		if (($svUseIPv6 != $clUseIPv6) or
 			($svProtocol != $clProtocol) or
+			(defined ($clGametype) and ($svGametype != $clGametype)) or
 			(defined ($svGamename) != defined ($clGamename)) or
 			(defined ($svGamename) and ($svGamename ne $clGamename))) {
 			next;
@@ -409,18 +415,42 @@ sub Client_Run {
 sub Client_SendGetServers {
 	my $clientRef = shift;
 
-	Common_VerbosePrint ("Sending getservers from client\n");
-	my $gameProp = $clientRef->{gameProperties};
+	Common_VerbosePrint ("Sending getservers from client $clientRef->{id}\n");
 
 	my $getservers = "\xFF\xFF\xFF\xFFgetservers";
 	if ($clientRef->{useIPv6} or $clientRef->{alwaysUseExtendedQuery}) {
 		$getservers .= "Ext";
 	}
 
+	my $gameProp = $clientRef->{gameProperties};
 	if (defined ($gameProp->{gamename})) {
 		$getservers .= " $gameProp->{gamename}";
 	}
 	$getservers .= " $gameProp->{protocol} empty full";
+
+	my $gametype = $gameProp->{gametype};
+	if (defined $gametype) {
+		my $gametypeFilter = "gametype=$gametype";
+
+		# Q3A uses shortcuts for the gametype test
+		if (not defined ($gameProp->{gamename})) {
+			if ($gametype == 0) {
+				$gametypeFilter = "ffa";
+			}
+			elsif ($gametype == 1) {
+				$gametypeFilter = "tourney";
+			}
+			elsif ($gametype == 3) {
+				$gametypeFilter = "team";
+			}
+			elsif ($gametype == 4) {
+				$gametypeFilter = "ctf";
+			}
+		}
+
+		$getservers .= " " . $gametypeFilter;
+	}
+
 	send ($clientRef->{socket}, $getservers, 0) or die "Can't send packet: $!";
 }
 
@@ -917,3 +947,4 @@ sub Test_Run {
 
 
 return 1;
+

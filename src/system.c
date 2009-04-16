@@ -70,8 +70,8 @@ const cmdlineopt_t sys_cmdline_options [] =
 		"Run as a daemon",
 		{ 0, 0 },
 		'D',
-		false,
-		false
+		0,
+		0
 	},
 	{
 		"jail-path",
@@ -80,8 +80,8 @@ const cmdlineopt_t sys_cmdline_options [] =
 		"   Only available when running with super-user privileges",
 		{ 0, 0 },
 		'j',
-		true,
-		true
+		1,
+		1
 	},
 	{
 		"user",
@@ -90,8 +90,8 @@ const cmdlineopt_t sys_cmdline_options [] =
 		"   Only available when running with super-user privileges",
 		{ 0, 0 },
 		'u',
-		true,
-		true
+		1,
+		1
 	},
 #endif
 	{
@@ -100,8 +100,8 @@ const cmdlineopt_t sys_cmdline_options [] =
 		NULL,
 		{ 0, 0 },
 		'\0',
-		false,
-		false
+		0,
+		0
 	}
 };
 
@@ -468,18 +468,14 @@ qboolean Sys_CreateListenSockets (void)
 Sys_Cmdline_Option
 
 Parse a system-dependent command line option
-"param" may be NULL, if the option doesn't need a parameter
 ====================
 */
-cmdline_status_t Sys_Cmdline_Option (const cmdlineopt_t* opt, const char* param)
+cmdline_status_t Sys_Cmdline_Option (const cmdlineopt_t* opt, const char** params, unsigned int nb_params)
 {
 #ifndef WIN32
 
 	const char* opt_name;
 	
-	assert (param == NULL || opt->accept_param);
-	assert (param != NULL || ! opt->need_param);
-
 	opt_name = opt->long_name;
 
 	// Daemon mode
@@ -488,11 +484,11 @@ cmdline_status_t Sys_Cmdline_Option (const cmdlineopt_t* opt, const char* param)
 
 	// Jail path
 	else if (strcmp (opt_name, "jail-path") == 0)
-		jail_path = param;
+		jail_path = params[0];
 
 	// Low privileges user
 	else if (strcmp (opt_name, "user") == 0)
-		low_priv_user = param;
+		low_priv_user = params[0];
 
 	return CMDLINE_STATUS_OK;
 

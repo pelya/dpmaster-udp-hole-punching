@@ -23,6 +23,7 @@
 
 #include "common.h"
 #include "system.h"
+#include "games.h"
 #include "messages.h"
 #include "servers.h"
 
@@ -54,7 +55,7 @@
 // Q3 & DP & QFusion: "infoResponse\x0A\\pure\\1\\..."
 #define S2M_INFORESPONSE "infoResponse\x0A"
 
-// Q3: "getservers 67 empty full"
+// Q3: "getservers 67 ffa empty full"
 // DP: "getservers DarkPlaces-Quake 3 empty full"
 // DP: "getservers Transfusion 3 empty full"
 // QFusion: "getservers qfusion 39 empty full"
@@ -230,10 +231,12 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 	size_t packetind;
 	server_t* sv;
 	int protocol;
+	int gametype = 0;
 	qboolean opt_empty = false;
 	qboolean opt_full = false;
 	qboolean opt_ipv4 = (! extended_request);
 	qboolean opt_ipv6 = false;
+	qboolean opt_gametype = false;
 	char filter_options [MAX_PACKET_SIZE_IN];
 	char* option_ptr;
 	unsigned int nb_servers = 0;
@@ -266,6 +269,15 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 				extended_request ? "getserversExt" : "getservers", peer_address,
 				gamename);
 
+	if (! Game_IsAccepted (gamename))
+	{
+		Com_Printf (MSG_WARNING,
+					"> WARNING: Rejecting %s from %s (game \"%s\" is not accepted)\n",
+					extended_request ? "getserversExt" : "getservers",
+					peer_address, gamename);
+		return;
+	}
+
 	// Parse the filtering options
 	strncpy (filter_options, msg_ptr, sizeof (filter_options) - 1);
 	filter_options[sizeof (filter_options) - 1] = '\0';
@@ -276,6 +288,34 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 			opt_empty = true;
 		else if (strcmp (option_ptr, "full") == 0)
 			opt_full = true;
+		else if (strcmp (option_ptr, "ffa") == 0)
+		{
+			gametype = 0;
+			opt_gametype = true;
+		}
+		else if (strcmp (option_ptr, "tourney") == 0)
+		{
+			gametype = 1;
+			opt_gametype = true;
+		}
+		else if (strcmp (option_ptr, "team") == 0)
+		{
+			gametype = 3;
+			opt_gametype = true;
+		}
+		else if (strcmp (option_ptr, "ctf") == 0)
+		{
+			gametype = 4;
+			opt_gametype = true;
+		}
+		else if (strncmp (option_ptr, "gametype=", 9) == 0)
+		{
+			const char* gametype_string = option_ptr + 9;
+
+			gametype = (int)strtol (gametype_string, &end_ptr, 0);
+			if (end_ptr != gametype_string && *end_ptr == '\0')
+				opt_gametype = true;
+		}
 		else if (extended_request)
 		{
 			if (strcmp (option_ptr, "ipv4") == 0)
@@ -348,20 +388,24 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 						"Comparing server: IP:\"%s\", p:%d, g:\"%s\"\n",
 						addrstr, sv->protocol, sv->gamename);
 
-			if (sv->address.ss_family == AF_INET && ! opt_ipv4)
-				Com_Printf (MSG_DEBUG, "Reject: no IPv4 servers allowed\n");
-			if (sv->address.ss_family == AF_INET6 && ! opt_ipv6)
-				Com_Printf (MSG_DEBUG, "Reject: no IPv6 servers allowed\n");
+			if (sv->state <= sv_state_uninitialized)
+				Com_Printf (MSG_DEBUG, "Reject: server is not initialized\n");
 			if (sv->protocol != protocol)
 				Com_Printf (MSG_DEBUG,
 							"Reject: protocol %d != requested %d\n",
 							sv->protocol, protocol);
-			if (sv->state <= sv_state_uninitialized)
-				Com_Printf (MSG_DEBUG, "Reject: server is not initialized\n");
-			if (sv->state == sv_state_empty && ! opt_empty)
-				Com_Printf (MSG_DEBUG, "Reject: server is empty && no_empty\n");
-			if (sv->state == sv_state_full && ! opt_full)
-				Com_Printf (MSG_DEBUG, "Reject: server is full && no_full\n");
+			if (opt_gametype && sv->gametype != gametype)
+				Com_Printf (MSG_DEBUG,
+							"Reject: gametype %d != requested %d\n",
+							sv->gametype, gametype);
+			if (! opt_empty && sv->state == sv_state_empty)
+				Com_Printf (MSG_DEBUG, "Reject: no empty server allowed\n");
+			if (! opt_full && sv->state == sv_state_full)
+				Com_Printf (MSG_DEBUG, "Reject: no full server allowed\n");
+			if (! opt_ipv4 && sv->address.ss_family == AF_INET)
+				Com_Printf (MSG_DEBUG, "Reject: no IPv4 servers allowed\n");
+			if (! opt_ipv6 && sv->address.ss_family == AF_INET6)
+				Com_Printf (MSG_DEBUG, "Reject: no IPv6 servers allowed\n");
 			if (strcmp (gamename, sv->gamename) != 0)
 				Com_Printf (MSG_DEBUG,
 							"Reject: gamename \"%s\" != requested \"%s\"\n",
@@ -370,11 +414,12 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 
 		// Check protocols, options, and gamename
 		if (sv->state <= sv_state_uninitialized ||
-			(sv->address.ss_family == AF_INET && ! opt_ipv4) ||
-			(sv->address.ss_family == AF_INET6 && ! opt_ipv6) ||
 			sv->protocol != protocol ||
-			(sv->state == sv_state_empty && ! opt_empty) ||
-			(sv->state == sv_state_full && ! opt_full) ||
+			(opt_gametype && sv->gametype != gametype) ||
+			(! opt_empty && sv->state == sv_state_empty) ||
+			(! opt_full && sv->state == sv_state_full) ||
+			(! opt_ipv4 && sv->address.ss_family == AF_INET) ||
+			(! opt_ipv6 && sv->address.ss_family == AF_INET6) ||
 			strcmp (gamename, sv->gamename) != 0)
 		{
 			// Skip it
@@ -466,6 +511,7 @@ static void HandleInfoResponse (server_t* server, const char* msg)
 {
 	char* value;
 	int new_protocol;
+	int new_gametype;
 	char* end_ptr;
 	unsigned int new_maxclients, new_clients;
 
@@ -502,6 +548,23 @@ static void HandleInfoResponse (server_t* server, const char* msg)
 					peer_address, value);
 		return;
 	}
+
+	// Check the value of "gametype"
+ 	value = SearchInfostring (msg, "gametype");
+	if (value != NULL)
+	{
+		new_gametype = (int)strtol (value, &end_ptr, 0);
+		if (end_ptr == value || *end_ptr != '\0')
+		{
+			Com_Printf (MSG_ERROR,
+						"> ERROR: invalid infoResponse from %s (invalid gametype value: %s)\n",
+						peer_address, value);
+			return;
+		}
+	}
+	// Default to gametype = 0 if the server hasn't sent this information
+	else
+		new_gametype = 0;
 
 	// Check the value of "maxclients"
 	value = SearchInfostring (msg, "sv_maxclients");
@@ -543,6 +606,14 @@ static void HandleInfoResponse (server_t* server, const char* msg)
 					peer_address);
 		return;
 	}
+	
+	if (! Game_IsAccepted (value))
+	{
+		Com_Printf (MSG_WARNING,
+					"> WARNING: Rejecting infoResponse from %s (game \"%s\" is not accepted)\n",
+					peer_address, value);
+		return;
+	}
 
 	// If the gamename has changed
 	if (strcmp (server->gamename, value) != 0)
@@ -563,6 +634,7 @@ static void HandleInfoResponse (server_t* server, const char* msg)
 
 	// Save some useful informations in the server entry
 	server->protocol = new_protocol;
+	server->gametype = new_gametype;
 	if (new_clients == 0)
 		server->state = sv_state_empty;
 	else if (new_clients == new_maxclients)

@@ -139,8 +139,7 @@ qboolean Sys_CreateListenSockets (void);
 
 
 // Parse a system-dependent command line option
-// "param" may be NULL, if the option doesn't need a parameter
-cmdline_status_t Sys_Cmdline_Option (const cmdlineopt_t* opt, const char* param);
+cmdline_status_t Sys_Cmdline_Option (const cmdlineopt_t* opt, const char** params, unsigned int nb_params);
 
 // System dependent initializations (called BEFORE security initializations)
 qboolean Sys_UnsecureInit (void);
