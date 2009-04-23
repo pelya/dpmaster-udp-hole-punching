@@ -208,7 +208,7 @@ static void SendGetInfo (server_t* server, int recv_socket)
 		Com_Printf (MSG_WARNING, "> WARNING: can't send getinfo (%s)\n",
 					Sys_GetLastNetErrorString ());
 	else
-		Com_Printf (MSG_DEBUG, "> %s <--- getinfo with challenge \"%s\"\n",
+		Com_Printf (MSG_NORMAL, "> %s <--- getinfo with challenge \"%s\"\n",
 					peer_address, server->challenge);
 }
 
@@ -255,7 +255,15 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 			*space = '\0';
 		msg_ptr = msg + strlen (gamename) + 1;
 
-		protocol = atoi (msg_ptr);
+		protocol = (int)strtol (msg_ptr, &end_ptr, 0);
+		if (end_ptr == msg_ptr || (*end_ptr != ' ' && *end_ptr != '\0'))
+		{
+			Com_Printf (MSG_WARNING,
+						"> WARNING: Rejecting %s from %s (missing or invalid protocol number)\n",
+						extended_request ? "getserversExt" : "getservers",
+						peer_address, gamename);
+			return;
+		}
 	}
 	// Else, it comes from a Quake III Arena client
 	else
@@ -367,8 +375,8 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 				Com_Printf (MSG_WARNING, "> WARNING: can't send %s (%s)\n",
 							request_name, Sys_GetLastNetErrorString ());
 			else
-				Com_Printf (MSG_DEBUG, "> %s <--- %s (%u servers)\n",
-							request_name, peer_address, nb_servers);
+				Com_Printf (MSG_NORMAL, "> %s <--- %s (%u servers)\n",
+							peer_address, request_name, nb_servers);
 
 			// If we're done
 			if (sv == NULL)
@@ -385,30 +393,31 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 		{
 			const char * addrstr = Sys_SockaddrToString (&sv->address);
 			Com_Printf (MSG_DEBUG,
-						"Comparing server: IP:\"%s\", p:%d, g:\"%s\"\n",
+						"  - Comparing server: IP:\"%s\", p:%d, g:\"%s\"\n",
 						addrstr, sv->protocol, sv->gamename);
 
 			if (sv->state <= sv_state_uninitialized)
-				Com_Printf (MSG_DEBUG, "Reject: server is not initialized\n");
+				Com_Printf (MSG_DEBUG,
+							"    Reject: server is not initialized\n");
 			if (sv->protocol != protocol)
 				Com_Printf (MSG_DEBUG,
-							"Reject: protocol %d != requested %d\n",
+							"    Reject: protocol %d != requested %d\n",
 							sv->protocol, protocol);
 			if (opt_gametype && sv->gametype != gametype)
 				Com_Printf (MSG_DEBUG,
-							"Reject: gametype %d != requested %d\n",
+							"    Reject: gametype %d != requested %d\n",
 							sv->gametype, gametype);
 			if (! opt_empty && sv->state == sv_state_empty)
-				Com_Printf (MSG_DEBUG, "Reject: no empty server allowed\n");
+				Com_Printf (MSG_DEBUG, "    Reject: no empty server allowed\n");
 			if (! opt_full && sv->state == sv_state_full)
-				Com_Printf (MSG_DEBUG, "Reject: no full server allowed\n");
+				Com_Printf (MSG_DEBUG, "    Reject: no full server allowed\n");
 			if (! opt_ipv4 && sv->address.ss_family == AF_INET)
-				Com_Printf (MSG_DEBUG, "Reject: no IPv4 servers allowed\n");
+				Com_Printf (MSG_DEBUG, "    Reject: no IPv4 servers allowed\n");
 			if (! opt_ipv6 && sv->address.ss_family == AF_INET6)
-				Com_Printf (MSG_DEBUG, "Reject: no IPv6 servers allowed\n");
+				Com_Printf (MSG_DEBUG, "    Reject: no IPv6 servers allowed\n");
 			if (strcmp (gamename, sv->gamename) != 0)
 				Com_Printf (MSG_DEBUG,
-							"Reject: gamename \"%s\" != requested \"%s\"\n",
+							"    Reject: gamename \"%s\" != requested \"%s\"\n",
 							sv->gamename, gamename);
 		}
 
@@ -446,7 +455,7 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 					sv_port = ntohs (addrmap->to.sin_port);
 
 				Com_Printf (MSG_DEBUG,
-							"Server address mapped to %u.%u.%u.%u:%hu\n",
+							"  - Using mapped address %u.%u.%u.%u:%hu\n",
 							sv_addr >> 24, (sv_addr >> 16) & 0xFF,
 							(sv_addr >>  8) & 0xFF, sv_addr & 0xFF,
 							sv_port);
@@ -526,7 +535,7 @@ static void HandleInfoResponse (server_t* server, const char* msg)
 	value = SearchInfostring (msg, "challenge");
 	if (!value || strcmp (value, server->challenge))
 	{
-		Com_Printf (MSG_ERROR, "> ERROR: invalid challenge from %s (%s)\n",
+		Com_Printf (MSG_WARNING, "> WARNING: invalid challenge from %s (%s)\n",
 					peer_address, value);
 		return;
 	}
@@ -535,16 +544,16 @@ static void HandleInfoResponse (server_t* server, const char* msg)
  	value = SearchInfostring (msg, "protocol");
 	if (value == NULL)
 	{
-		Com_Printf (MSG_ERROR,
-					"> ERROR: invalid infoResponse from %s (no protocol value)\n",
+		Com_Printf (MSG_WARNING,
+					"> WARNING: invalid infoResponse from %s (no protocol value)\n",
 					peer_address);
 		return;
 	}
 	new_protocol = (int)strtol (value, &end_ptr, 0);
 	if (end_ptr == value || *end_ptr != '\0')
 	{
-		Com_Printf (MSG_ERROR,
-					"> ERROR: invalid infoResponse from %s (invalid protocol value: %s)\n",
+		Com_Printf (MSG_WARNING,
+					"> WARNING: invalid infoResponse from %s (invalid protocol value: %s)\n",
 					peer_address, value);
 		return;
 	}
@@ -556,8 +565,8 @@ static void HandleInfoResponse (server_t* server, const char* msg)
 		new_gametype = (int)strtol (value, &end_ptr, 0);
 		if (end_ptr == value || *end_ptr != '\0')
 		{
-			Com_Printf (MSG_ERROR,
-						"> ERROR: invalid infoResponse from %s (invalid gametype value: %s)\n",
+			Com_Printf (MSG_WARNING,
+						"> WARNING: invalid infoResponse from %s (invalid gametype value: %s)\n",
 						peer_address, value);
 			return;
 		}
@@ -571,8 +580,8 @@ static void HandleInfoResponse (server_t* server, const char* msg)
 	new_maxclients = ((value != NULL) ? atoi (value) : 0);
 	if (new_maxclients == 0)
 	{
-		Com_Printf (MSG_ERROR,
-					"> ERROR: invalid infoResponse from %s (sv_maxclients = %d)\n",
+		Com_Printf (MSG_WARNING,
+					"> WARNING: invalid infoResponse from %s (sv_maxclients = %d)\n",
 					peer_address, new_maxclients);
 		return;
 	}
@@ -581,8 +590,8 @@ static void HandleInfoResponse (server_t* server, const char* msg)
 	value = SearchInfostring (msg, "clients");
 	if (value == NULL)
 	{
-		Com_Printf (MSG_ERROR,
-					"> ERROR: invalid infoResponse from %s (no \"clients\" value)\n",
+		Com_Printf (MSG_WARNING,
+					"> WARNING: invalid infoResponse from %s (no \"clients\" value)\n",
 					peer_address);
 		return;
 	}
@@ -594,15 +603,15 @@ static void HandleInfoResponse (server_t* server, const char* msg)
 		value = GAMENAME_Q3A;
 	else if (value[0] == '\0')
 	{
-		Com_Printf (MSG_ERROR,
-					"> ERROR: invalid infoResponse from %s (game name is void)\n",
+		Com_Printf (MSG_WARNING,
+					"> WARNING: invalid infoResponse from %s (game name is void)\n",
 					peer_address);
 		return;
 	}
 	else if (strchr (value, ' ') != NULL)
 	{
-		Com_Printf (MSG_ERROR,
-					"> ERROR: invalid infoResponse from %s (game name contains whitespaces)\n",
+		Com_Printf (MSG_WARNING,
+					"> WARNING: invalid infoResponse from %s (game name contains whitespaces)\n",
 					peer_address);
 		return;
 	}
@@ -615,24 +624,8 @@ static void HandleInfoResponse (server_t* server, const char* msg)
 		return;
 	}
 
-	// If the gamename has changed
-	if (strcmp (server->gamename, value) != 0)
-	{
-		// If the server had already been initialized, warn about it
-		if (server->gamename[0] != '\0')
-		{
-			assert (server->state > sv_state_uninitialized);
-			Com_Printf (MSG_WARNING,
-						"> Server %s updated its gamename: \"%s\" -> \"%s\"\n",
-						peer_address, server->gamename, value);
-		}
-		else
-			assert (server->state == sv_state_uninitialized);
-
-		strncpy (server->gamename, value, sizeof (server->gamename) - 1);
-	}
-
 	// Save some useful informations in the server entry
+	strncpy (server->gamename, value, sizeof (server->gamename) - 1);
 	server->protocol = new_protocol;
 	server->gametype = new_gametype;
 	if (new_clients == 0)
@@ -670,7 +663,7 @@ void HandleMessage (const char* msg, size_t length,
 
 		// Extract the game id
 		sscanf (msg + strlen (S2M_HEARTBEAT) + 1, "%63s", gameId);
-		Com_Printf (MSG_DEBUG, "> %s ---> heartbeat (%s)\n",
+		Com_Printf (MSG_NORMAL, "> %s ---> heartbeat (%s)\n",
 					peer_address, gameId);
 
 		// Get the server in the list (add it to the list if necessary)
@@ -687,7 +680,7 @@ void HandleMessage (const char* msg, size_t length,
 	// If it's an infoResponse message
 	else if (!strncmp (S2M_INFORESPONSE, msg, strlen (S2M_INFORESPONSE)))
 	{
-		Com_Printf (MSG_DEBUG, "> %s ---> infoResponse\n", peer_address);
+		Com_Printf (MSG_NORMAL, "> %s ---> infoResponse\n", peer_address);
 	
 		server = Sv_GetByAddr (address, addrlen, false);
 		if (server == NULL)

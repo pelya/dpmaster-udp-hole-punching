@@ -6,7 +6,19 @@
                                -------------------
 
 
-* INTRODUCTION:
+ 1) INTRODUCTION
+ 2) SYNTAX & OPTIONS
+ 3) SECURITY
+ 4) OUTPUT AND VERBOSITY LEVELS
+ 5) LOGGING
+ 6) GAME POLICY
+ 7) ADDRESS MAPPING
+ 8) LISTENING INTERFACES
+ 9) CHANGES
+10) CONTACTS & LINKS
+
+
+1) INTRODUCTION:
 
 Dpmaster is a lightweight master server written from scratch for LordHavoc's
 game engine DarkPlaces. It is an open master server because of its free source
@@ -18,7 +30,9 @@ Aside from its own protocol, dpmaster supports the classic Quake III Arena
 protocol. Game engines supporting the DP master server protocol currently
 include DarkPlaces and all its derived games (such as Nexuiz and Transfusion),
 QFusion and most of its derived games (such as Warsow), and FTE QuakeWorld.
-IOQuake3 uses it for its IPv6-enabled servers and clients.
+IOQuake3 uses it for its IPv6-enabled servers and clients. Also, dpmaster's
+source code has been used by a few projects as a base for creating their own
+master servers (Tremulous, for example).
 
 If you want to use the DP master protocol in one of your software, take a look
 at the "PROTOCOL" section in "doc/techinfo.txt" for further explanations. It is
@@ -31,10 +45,11 @@ family. Take a look at the "COMPILING DPMASTER" section in "doc/techinfo.txt"
 for more information. Be aware that some options are only available on UNIXes,
 including all security-related options - see the "SECURITY" section below.
 
-The source code of dpmaster is available under the GNU General Public License.
+The source code of dpmaster is available under the GNU General Public License,
+version 2. You'll find it in the doc subdirectory, in the file "license.txt".
 
 
-* SYNTAX & OPTIONS:
+2) SYNTAX & OPTIONS:
 
 The syntax of the command line is the classic: "dpmaster [options]". Running
 "dpmaster -h" will print the available options for your version.
@@ -57,7 +72,7 @@ of servers of 16 are equivalent:
    * dpmaster --max-servers=16
 
 
-* SECURITY:
+3) SECURITY:
 
 First, you shouldn't be afraid to run dpmaster on your machine: at the time I
 wrote those lines, only one security warning has been issued since the first
@@ -91,7 +106,25 @@ Finally, you will probably be glad to know that dpmaster can't leak memory: in
 fact, no resources are allocated after the initialization phase.
 
 
-* LOGGING:
+4) OUTPUT AND VERBOSITY LEVELS:
+
+The "-v" / "--verbose" option allows you to control the amount of text dpmaster
+outputs. Setting its verbosity to a particular level make dpmaster output all
+texts belonging to that level or below. If you don't specify a verbose level
+right after the command line option, the highest level will be used. 
+
+There are 5 verbose levels:
+   * 0: No output, except if the parsing of the command line fails.
+   * 1: Fatal errors only. It is almost similar to level 0 since fatal errors
+        mostly occur during the parsing of the command line in this version.
+   * 2: Warnings, including non-fatal system errors, malformed network messages,
+        unexpected events (when the maximum number of servers is reached for
+        instance), and the server list printed on top of log files.
+   * 3: The default level. Standard printings, describing the current activity.
+   * 4: Extra informations, mostly helpful when trying to debug a problem.
+
+
+5) LOGGING:
 
 You can enable logging by adding "-L" or "--log" to the command line. The
 default name of the log file is "dpmaster.log", either in the working directory
@@ -123,7 +156,7 @@ then be relative to the jail root directory. Watch out for the log directory not
 being created or having wrong permissions in this case.
 
 
-* GAME POLICY:
+6) GAME POLICY:
 
 If you run an instance of dpmaster, we strongly encourage you to let it open to
 any game or player. Dpmaster has been developed for this particular usage and is
@@ -160,7 +193,7 @@ will make dpmaster accept messages only when they will be related to a game
 called "-v" (certainly not what you want...).
 
 
-* ADDRESS MAPPING:
+7) ADDRESS MAPPING:
 
 Address mapping allows you to tell dpmaster to transmit an IPv4 address instead
 of another one to the clients, in the "getserversResponse" messages. It can be
@@ -219,7 +252,7 @@ it's actually the only way to make dpmaster accept a server talking from a
 loopback address.
 
 
-* LISTENING INTERFACES:
+8) LISTENING INTERFACES:
 
 By default, dpmaster creates one IPv4 socket and one IPv6 socket (if IPv6
 support is available of course). It will listen on every network interface, on
@@ -256,14 +289,15 @@ IPv6 address, I recommend that you take a look at the paragraph regarding IPv6
 zone indices on this Wikipedia article: http://en.wikipedia.org/wiki/IPv6
 
 
-* CHANGES:
+9) CHANGES:
 
-    - version 2.0-devel:
+    - version 2.0 RC1:
         Gametype filter support in the server list queries (see techinfo.txt)
         New option "--game-policy" to filter games (see GAME POLICY above)
         IPv6 support, including 2 new messages types (see techinfo.txt)
         Logging support (see LOGGING above)
         The default number of servers is now 4096
+        The default hash size has been increased to 10 bits
         Improved listening interface option (see LISTENING INTERFACES above)
         Long format for all command line options (see SYNTAX & OPTIONS above)
         The server lists are now sent in a semi-random order, for fairness
@@ -272,6 +306,9 @@ zone indices on this Wikipedia article: http://en.wikipedia.org/wiki/IPv6
         New option "--allow-loopback", for debugging purposes only!
         New option "--hash-ports", for debugging purposes only!
         Various updates and improvements in the documentation
+        No warning is printed anymore if a server changes its game name
+        No longer tolerate several mapping declarations for the same address
+        Various other minor changes and fixes 
         The test suite now requires the Socket6 Perl module
 
     - version 1.7:
@@ -349,13 +386,14 @@ zone indices on this Wikipedia article: http://en.wikipedia.org/wiki/IPv6
         First publicly available version
 
 
-* CONTACTS & LINKS:
+10) CONTACTS & LINKS:
 
 You can get more informations and the latest versions of DarkPlaces and
 dpmaster on the DarkPlaces home page: http://icculus.org/twilight/darkplaces/
 
-If dpmaster doesn't fit your needs, please drop me an email. Your opinion and
-ideas may be very valuable to me for evolving it to a better tool.
+If dpmaster doesn't fit your needs, please drop me an email (my name and email
+address are right below those lines). Your opinion and ideas may be very
+valuable to me for evolving it to a better tool.
 
 
 --

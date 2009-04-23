@@ -35,6 +35,8 @@
 // User we use by default for dropping super-user privileges
 # define DEFAULT_LOW_PRIV_USER "nobody"
 
+# define INVALID_SOCKET (-1)
+
 #endif
 
 
@@ -118,7 +120,7 @@ Sys_CloseSocket
 Close a network socket
 ====================
 */
-static void Sys_CloseSocket (int sock)
+static void Sys_CloseSocket (socket_t sock)
 {
 #ifdef WIN32
 	closesocket (sock);
@@ -305,7 +307,7 @@ qboolean Sys_DeclareListenAddress (const char* local_addr_name)
 		listen_socket_t* listen_sock = &listen_sockets[nb_sockets];
 
 		memset (listen_sock, 0, sizeof (*listen_sock));
-		listen_sock->socket = -1;
+		listen_sock->socket = INVALID_SOCKET;
 		listen_sock->local_addr_name = local_addr_name;
 
 		nb_sockets++;
@@ -382,12 +384,12 @@ qboolean Sys_CreateListenSockets (void)
 	for (sock_ind = 0; sock_ind < nb_sockets; sock_ind++)
 	{
 		listen_socket_t* listen_sock = &listen_sockets[sock_ind];
-		int crt_sock;
+		socket_t crt_sock;
 		int addr_family;
 
 		addr_family = listen_sock->local_addr.ss_family;
 		crt_sock = socket (addr_family, SOCK_DGRAM, IPPROTO_UDP);
-		if (crt_sock < 0)
+		if (crt_sock == INVALID_SOCKET)
 		{
 			// If the address family isn't supported but the socket is optional, don't fail!
 			if (Sys_GetLastNetError() == NETERR_AFNOSUPPORT &&
@@ -552,24 +554,26 @@ qboolean Sys_SecurityInit (void)
 		}
 
 		// Chroot ourself
-		Com_Printf (MSG_NORMAL, "  - chrooting myself to %s... ", jail_path);
 		if (chroot (jail_path) || chdir ("/"))
 		{
-			Com_Printf (MSG_ERROR, "FAILED (%s)\n", strerror (errno));
+			Com_Printf (MSG_ERROR,
+						"  - ERROR: can't chroot myself to %s (%s)\n",
+						jail_path, strerror (errno));
 			return false;
 		}
-		Com_Printf (MSG_NORMAL, "succeeded\n");
+		Com_Printf (MSG_NORMAL, "  - Chrooted myself to %s\n", jail_path);
 
 		// Switch to lower privileges
-		Com_Printf (MSG_NORMAL, "  - switching to user \"%s\" privileges... ",
-					low_priv_user);
 		if (setgid (pw->pw_gid) || setuid (pw->pw_uid))
 		{
-			Com_Printf (MSG_ERROR, "FAILED (%s)\n", strerror (errno));
+			Com_Printf (MSG_ERROR,
+						"  - ERROR: can't switch to user \"%s\" privileges (%s)\n",
+						low_priv_user, strerror (errno));
 			return false;
 		}
-		Com_Printf (MSG_NORMAL, "succeeded (UID: %d, GID: %d)\n",
-					(int)pw->pw_uid, (int)pw->pw_gid);
+		Com_Printf (MSG_NORMAL,
+					"  - Switched to user \"%s\" privileges (UID: %d, GID: %d)\n",
+					low_priv_user, (int)pw->pw_uid, (int)pw->pw_gid);
 
 		Com_Printf (MSG_NORMAL, "\n");
 	}
@@ -640,15 +644,15 @@ const char* Sys_SockaddrToString (const struct sockaddr_storage* address)
 		res_len = strlen (result);
 		snprintf (result + res_len, sizeof (result) - res_len, "%s:%s", suffix,
 				  port_str);
-		result[sizeof(result) - 1] = '\0';
 	}
 	else
 	{
 		Com_Printf (MSG_WARNING,
 					"> WARNING: can't convert address to a printable form: %s\n",
 					gai_strerror(err));
-		result[0] = '\0';
+		strncpy(result, "NON-PRINTABLE ADDRESS", sizeof (result) - 1);
 	}
+	result[sizeof(result) - 1] = '\0';
    
 	return result;
 }

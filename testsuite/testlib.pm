@@ -214,7 +214,7 @@ sub Client_CheckServerList {
 		
 		# Skip this server if it doesn't match the conditions
 		if (($svUseIPv6 != $clUseIPv6) or
-			($svProtocol != $clProtocol) or
+			(not defined ($clProtocol) or ($svProtocol ne $clProtocol)) or
 			(defined ($clGametype) and ($svGametype != $clGametype)) or
 			(defined ($svGamename) != defined ($clGamename)) or
 			(defined ($svGamename) and ($svGamename ne $clGamename))) {
@@ -426,7 +426,10 @@ sub Client_SendGetServers {
 	if (defined ($gameProp->{gamename})) {
 		$getservers .= " $gameProp->{gamename}";
 	}
-	$getservers .= " $gameProp->{protocol} empty full";
+	if (defined $gameProp->{protocol}) {
+		$getservers .= " $gameProp->{protocol}";
+	}
+	$getservers .= " empty full";
 
 	my $gametype = $gameProp->{gametype};
 	if (defined $gametype) {

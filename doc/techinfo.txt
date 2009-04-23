@@ -6,7 +6,12 @@
                               ---------------------
 
 
-* COMPILING DPMASTER:
+1) COMPILING DPMASTER
+2) PROTOCOL
+3) BEHAVIOUR
+
+
+1) COMPILING DPMASTER:
 
 Dpmaster is being developed mostly on PC hardware, on Linux and Windows, using
 GCC and MS Visual Studio respectively. If you use one of these compilers, you
@@ -31,7 +36,7 @@ go to the "Build" menu, then "Set Active Configuration..." and select "dpmaster
 file in the "Release" subdirectory.
 
 
-* PROTOCOL:
+2) PROTOCOL:
 
 Dpmaster uses a protocol that is heavily inspired by Quake III Arena's master
 server protocol. The reference document for this protocol can be found on id
@@ -234,7 +239,7 @@ in the infostring.
             on port 2048 will be sent as: "\x01\x02\x03\x04\x08\x00".
 
 
-* BEHAVIOUR:
+3) BEHAVIOUR:
 
 The way dpmaster behaves when talking to clients and servers is largely based
 on one important idea: authenticated "infoResponse" messages are the only

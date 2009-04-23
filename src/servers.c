@@ -220,7 +220,7 @@ static server_t** Sv_AllocateHashTable (size_t table_size, const char* proto_nam
 	if (result != NULL)
 	{
 		memset (result, 0, array_size);
-		Com_Printf (MSG_NORMAL,
+		Com_Printf (MSG_DEBUG,
 					"> %s hash table allocated (%u entries)\n",
 					proto_name, table_size);
 	}
@@ -410,13 +410,13 @@ static void Sv_CheckTimeouts (void)
 
 /*
 ====================
-Sv_ResolveAddr
+Sv_ResolveIPv4Addr
 
 Resolve an internet address
 name may include a port number, after a ':'
 ====================
 */
-static qboolean Sv_ResolveAddr (const char* name, struct sockaddr_in* addr)
+static qboolean Sv_ResolveIPv4Addr (const char* name, struct sockaddr_in* addr)
 {
 	char *namecpy, *port;
 	struct hostent* host;
@@ -488,7 +488,7 @@ Sv_InsertAddrmapIntoList
 Insert an addrmap structure to the addrmaps list
 ====================
 */
-static void Sv_InsertAddrmapIntoList (addrmap_t* new_map)
+static qboolean Sv_InsertAddrmapIntoList (addrmap_t* new_map)
 {
 	addrmap_t* addrmap = addrmaps;
 	addrmap_t** prev = &addrmaps;
@@ -505,15 +505,11 @@ static void Sv_InsertAddrmapIntoList (addrmap_t* new_map)
 			// If a mapping is already recorded for this address
 			if (addrmap->from.sin_port == new_map->from.sin_port)
 			{
-				Com_Printf (MSG_WARNING,
-							"> WARNING: overwritting the previous mapping of address %s:%hu\n",
+				Com_Printf (MSG_ERROR,
+							"> ERROR: several mappings are declared for address %s:%hu\n",
 							inet_ntoa (new_map->from.sin_addr),
 							ntohs (new_map->from.sin_port));
-
-				*prev = addrmap->next;
-				free (addrmap->from_string);
-				free (addrmap->to_string);
-				free (addrmap);
+				return false;
 			}
 			break;
 		}
@@ -533,6 +529,8 @@ static void Sv_InsertAddrmapIntoList (addrmap_t* new_map)
 				from_addr, ntohs (new_map->from.sin_port),
 				new_map->to_string,
 				inet_ntoa (new_map->to.sin_addr), ntohs (new_map->to.sin_port));
+	
+	return true;
 }
 
 
@@ -586,8 +584,8 @@ Resolve an addrmap structure and check the parameters validity
 static qboolean Sv_ResolveAddrmap (addrmap_t* addrmap)
 {
 	// Resolve the addresses
-	if (!Sv_ResolveAddr (addrmap->from_string, &addrmap->from) ||
-		!Sv_ResolveAddr (addrmap->to_string, &addrmap->to))
+	if (!Sv_ResolveIPv4Addr (addrmap->from_string, &addrmap->from) ||
+		!Sv_ResolveIPv4Addr (addrmap->to_string, &addrmap->to))
 		return false;
 
 	// 0.0.0.0 addresses are forbidden
@@ -1055,14 +1053,16 @@ qboolean Sv_ResolveAddressMappings (void)
 		if (!Sv_ResolveAddrmap (addrmap))
 			return false;
 	
-	// Sort the list
+	// Build the sorted list
 	addrmap = addrmaps;
 	addrmaps = NULL;
 	while (addrmap != NULL)
 	{
 		addrmap_t* next_addrmap = addrmap->next;
 		
-		Sv_InsertAddrmapIntoList (addrmap);
+		if (! Sv_InsertAddrmapIntoList (addrmap))
+			return false;
+
 		addrmap = next_addrmap;
 	}
 

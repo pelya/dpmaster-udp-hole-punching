@@ -32,7 +32,7 @@
 // ---------- Constants ---------- //
 
 // Version of dpmaster
-#define VERSION "2.0-devel"
+#define VERSION "2.0 RC1"
 
 
 // ---------- Private variables ---------- //
@@ -55,7 +55,7 @@ static const cmdlineopt_t cmdline_options [] =
 		"<accept|reject> <game_name> ...",
 		"Accept or reject the listed games. Can be specified more than once only\n"
 		"   if all instances set the same policy (\"accept\" or \"reject\").\n"
-		"    All non-listed games will implicitely get the opposite policy.\n"
+		"   All non-listed games will implicitely get the opposite policy."
 		,
 		{ 0, 0 },
 		'\0',

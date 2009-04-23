@@ -34,7 +34,7 @@
 #define DEFAULT_MAX_NB_SERVERS_PER_ADDRESS 32
 
 // Address hash size in bits (between 0 and MAX_HASH_SIZE)
-#define DEFAULT_HASH_SIZE 8
+#define DEFAULT_HASH_SIZE 10
 #define MAX_HASH_SIZE 16
 
 // Number of characters in a challenge, including the '\0'

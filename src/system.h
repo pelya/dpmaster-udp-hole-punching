@@ -78,14 +78,17 @@
 // ---------- Public types ---------- //
 
 #ifdef WIN32
+typedef SOCKET socket_t;
 typedef int socklen_t;
 typedef u_short sa_family_t;
+#else
+typedef int socket_t;
 #endif
 
 // Listening socket
 typedef struct
 {
-	int socket;
+	socket_t socket;
 	socklen_t local_addr_len;
 	const char* local_addr_name;
 	struct sockaddr_storage local_addr;
