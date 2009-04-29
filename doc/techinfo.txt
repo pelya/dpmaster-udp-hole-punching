@@ -41,7 +41,9 @@ file in the "Release" subdirectory.
 Dpmaster uses a protocol that is heavily inspired by Quake III Arena's master
 server protocol. The reference document for this protocol can be found on id
 Software anonymous FTP site:
+
     ftp://ftp.idsoftware.com/idstuff/quake3/docs/server.txt
+
 We have tried to keep our protocol as close as possible to Q3A's one, for a
 matter of compatibility with the numerous tools that exist for this game.
 
@@ -50,10 +52,10 @@ successor of the current internet protocol IPv4. The 5 basic types are:
 "heartbeat", "getinfo", "infoResponse", "getservers" and "getserversResponse".
 The 2 extra types are "getserversExt" and "getserversExtResponse", 2 extended
 versions of the basic types "getservers" and "getserversResponse" respectively.
-The first 3 basic types are used by servers to authenticate and register to a
-master server. The remaining types are used by clients to get a list of servers
-from a master server. All messages start with 4 bytes set to 0xFF (character
-255), then the command type in plain text.
+The first 3 basic types are used by servers to authenticate and register
+themselves to a master server. The remaining types are used by clients to
+retrieve a list of servers from a master server. All messages start with 4 bytes
+set to 0xFF (character 255), then the command type in plain text.
 
 The 2 basic types of messages which are likely to cause compliance problems with
 Q3A-compatible tools are: "heartbeat" (requires a different protocol string) and
@@ -68,9 +70,9 @@ in the infostring.
 
             The heartbeat is sent by a server when it wants to get noticed by a
             master. A server should send an heartbeat each time it becomes empty
-            or full, plus it should make sure the master gets at least one
-            heartbeat from it every 5-10 minutes, so the master doesn't remove
-            it from its list of active servers.
+            or full, or stop being empty or full, plus it should make sure the 
+            master gets at least one heartbeat from it every 5 to 15 minutes, so
+            the master doesn't remove it from its list of active servers.
 
         - samples:
 
@@ -91,7 +93,7 @@ in the infostring.
         - description:
 
             This message is sent by a master to a server, usually in response
-            to an "hearbeat" by this very server. It's used by the master to
+            to an "hearbeat" by this very server. It is used by the master to
             trigger the sending of an "infoResponse" from the server. The
             challenge string is necessary to authenticate the server's
             corresponding "infoResponse".
@@ -122,8 +124,8 @@ in the infostring.
 
             The message type is followed by a line feed character and the
             server's infostring. An infostring is a series of keys and values
-            separated by '\'. Popular keys include "hostname" (the host name),
-            "mapname" (the map currently played on this server).
+            separated by '\'s. Popular keys include "hostname" (the host name),
+            and "mapname" (the map currently played on this server).
             This infostring must contain the challenge string sent by the
             master in the "getinfo" that triggered this response (key name:
             "challenge"). "sv_maxclients" (the maximum number of clients
@@ -132,11 +134,11 @@ in the infostring.
             server) must also be present. Except for Q3A, "gamename" (the game
             name) is mandatory too, and its value must not contain whitespaces.
             
-            Starting from version 2.0, dpmaster also saves the value of the
-            "gametype" key, which may be used as a filter in server list queries
-            (see the "getservers" message description below for more details).
-            If no "gametype" key is present in the response message, this number
-            defaults to 0.
+            Starting from version 2.0, dpmaster also uses the value of the
+            "gametype" key, which may be specified as a filter in server list
+            queries (see the "getservers" message description below for more
+            details). If no "gametype" key is present in the response message,
+            this number defaults to 0.
 
     4) getservers:
 
@@ -162,10 +164,10 @@ in the infostring.
             Starting from dpmaster version 2.0, you may also add in the option
             list at most one gametype filter "gametype=X", where X is the
             gametype number a server must have declared to be part of the 
-            returned list. 4 other keywords are allowed as shortcuts to this
-            filter, for compatibility with Q3A: "ffa", "tourney", "team" and
-            "ctf" are equivalent to "gametype=0", "gametype=1", "gametype=3" and
-            "gametype=4" respectively.
+            returned server list. 4 other keywords are allowed as shortcuts to
+            this filter, for compatibility with Q3A: "ffa", "tourney", "team"
+            and "ctf" are equivalent to "gametype=0", "gametype=1", "gametype=3"
+            and "gametype=4" respectively.
 
     5) getserversResponse:
 
@@ -213,7 +215,7 @@ in the infostring.
 
             As you can see in this sample, since the game name is mandatory in
             an extended query, you'll have to use the game name "Quake3Arena"
-            explicitely if you want to ask for Q3A servers.
+            explicitly if you want to ask for Q3A servers.
 
     7) getserversExtResponse:
 
@@ -231,7 +233,7 @@ in the infostring.
             The list of servers is composed of IPv4 and IPv6 addresses and their
             associated ports. Each server is stored on 4 bytes for an IPv4
             address, 16 bytes for an IPv6 address, plus 2 bytes for the port
-            number. To differenciate and separate those addresses, a '\'
+            number. To differentiate and separate those addresses, a '\'
             character precedes every IPv4 address, and a '/' character precedes
             every IPv6 address. The list ends with a fake IPv4 address
             "EOT\0\0\0". All numbers are big-endian oriented (most significant
@@ -260,7 +262,7 @@ forgets it.
 
 You may have noticed that this behaviour doesn't take into account the fact
 that some servers send 2 "heartbeat" messages when closing. I deliberately
-choose to keep the behaviour as simple and predictible as possible, hopefully
+choose to keep the behaviour as simple and predictable as possible, hopefully
 making it free from any major abuse.
 
 

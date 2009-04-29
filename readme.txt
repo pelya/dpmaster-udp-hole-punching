@@ -14,7 +14,7 @@
  6) GAME POLICY
  7) ADDRESS MAPPING
  8) LISTENING INTERFACES
- 9) CHANGES
+ 9) VERSION HISTORY
 10) CONTACTS & LINKS
 
 
@@ -23,21 +23,22 @@
 Dpmaster is a lightweight master server written from scratch for LordHavoc's
 game engine DarkPlaces. It is an open master server because of its free source
 code and documentation, and because its Quake III Arena-like protocol allows it
-to fully support new games without having to restart or reconfigure it. Run and
-forget.
+to fully support new games without having to restart or reconfigure it: run and
+forget. In addition to its own protocol, dpmaster also supports the original
+Quake III Arena master protocol.
 
-Aside from its own protocol, dpmaster supports the classic Quake III Arena
-protocol. Game engines supporting the DP master server protocol currently
-include DarkPlaces and all its derived games (such as Nexuiz and Transfusion),
-QFusion and most of its derived games (such as Warsow), and FTE QuakeWorld.
-IOQuake3 uses it for its IPv6-enabled servers and clients. Also, dpmaster's
-source code has been used by a few projects as a base for creating their own
-master servers (Tremulous, for example).
+Several game engines currently support the DP master server protocol: DarkPlaces
+and all its derived games (such as Nexuiz and Transfusion), QFusion and most of
+its derived games (such as Warsow), and FTE QuakeWorld. Also, IOQuake3 uses it
+for its IPv6-enabled servers and clients since its version 1.36. Finally,
+dpmaster's source code has been used by a few projects as a base for creating
+their own master servers (this is the case of Tremulous, for instance).
 
 If you want to use the DP master protocol in one of your software, take a look
 at the "PROTOCOL" section in "doc/techinfo.txt" for further explanations. It is
-easy to implement, and if you ask politely, chances are you will be able to find
-someone that will let you use his running dpmaster if you can't get your own.
+pretty easy to implement, and if you ask politely, chances are you will be able
+to find someone that will let you use his running dpmaster if you can't get your
+own.
 
 Although dpmaster is being developed primarily on an x86 Linux machine, it
 should compile and run at least on any operating system from the Win32 or UNIX
@@ -46,7 +47,7 @@ for more information. Be aware that some options are only available on UNIXes,
 including all security-related options - see the "SECURITY" section below.
 
 The source code of dpmaster is available under the GNU General Public License,
-version 2. You'll find it in the doc subdirectory, in the file "license.txt".
+version 2. You can find the text of this license in the file "doc/license.txt".
 
 
 2) SYNTAX & OPTIONS:
@@ -79,16 +80,16 @@ wrote those lines, only one security warning has been issued since the first
 release of dpmaster. It has always been developed with security in mind and will
 always be.
 
-Also, dpmaster needs very few things to run correctly. A little bit of memory,
-a few CPU cycles from time to time and a network port are its only
-requirements. So feel free to restrict its privileges as much as you can.
+Also, dpmaster needs very few things to run in its default configuration. A
+little bit of memory, a few CPU cycles from time to time and a network port are
+its only basic requirements. So feel free to restrict its privileges as much as
+you can.
 
 The UNIX/Linux version of dpmaster has even a builtin security mechanism that
 triggers when it is run with super-user (root) privileges. Basically, the
-process locks (chroots) itself in the empty directory "/var/empty/" and drops
-its privileges in favor of those of user "nobody" (notorious for having almost
-no privileges at all)  :)  Note that this path and this user name are
-customizable via the '-j' and '-u' command line options.
+process locks (chroots) itself in the directory "/var/empty/" and drops its
+privileges in favor of those of user "nobody". This path and this user name are
+of course customizable, tahnks to the '-j' and '-u' command line options.
 
 If you want to run dpmaster on a Win2k system (or better), you may want to add
 a "dpmaster" user on your computer. Make it a normal user, not a power user or
@@ -97,13 +98,10 @@ account. Right click on "dpmaster.exe" while pressing the SHIFT button; select
 "Run as...", and type "dpmaster", the password you chose for it, and your
 domain main (your computer name probably). After a few seconds, dpmaster should
 appear on your screen. Note that you won't be able to type anything into the
-window (including closing it with Ctrl-C), you'll have to close it with the
-upper right button.
-For your information, Windows systems since Win2k include a command line utility
-for running programs as another user, called "runas".
-
-Finally, you will probably be glad to know that dpmaster can't leak memory: in
-fact, no resources are allocated after the initialization phase.
+window (including closing it with Ctrl-C), you'll have to close it using the
+upper right windows "close" icon.
+You can also do this using the command line, thanks to the "runas" utility which
+is included in Windows systems since Win2k.
 
 
 4) OUTPUT AND VERBOSITY LEVELS:
@@ -121,7 +119,7 @@ There are 5 verbose levels:
         unexpected events (when the maximum number of servers is reached for
         instance), and the server list printed on top of log files.
    * 3: The default level. Standard printings, describing the current activity.
-   * 4: Extra informations, mostly helpful when trying to debug a problem.
+   * 4: Extra information, mostly helpful when trying to debug a problem.
 
 
 5) LOGGING:
@@ -134,26 +132,26 @@ change the path and name of this file using the "--log-file" option.
 The obvious way to use the log is to enable it by default. But if you want to do
 that, you may consider using a lesser verbose level ("-v" or "--verbose", with a
 value of 1 - only errors, or 2 - only errors and warnings), as dpmaster tends
-to be pretty verbose.
+to be very verbose at its default level (3).
 
-Another way to use the log is to set maximum verbose output, but to enable it
-only when needed, and then to disable it afterwards. This is possible on the
-systems that provide POSIX signals USR1 and USR2, which means all supported
-systems except the Windows family. When dpmaster receives the USR1 signal, it
-opens its log file (or reopens it if it was already opened), dumps the list of
+Another way to use the log is to set the verbose level to its maximum value, but
+to enable the log only when needed, and then to disable it afterwards. This is
+possible on the systems that provide POSIX signals USR1 and USR2 (all supported
+systems except the Windows family). When dpmaster receives the USR1 signal, it
+opens its log file, or reopens it if it was already opened, dumps the list of
 all registered servers, and then proceeds with its normal logging. When it
 receives the USR2 signal, it closes its log file.
 
 Note that dpmaster will never overwrite an existing log file, it always appends
 logs to it. It prevents you from losing a potentially important log by mistake,
-with the drawback of having to clean the logs by hand.
+with the drawback of having to clean the logs from time to time.
 
-A couple of final remarks regarding the log file names : first, if you run
-dpmaster as a daemon, remember that its working directory is the root directory,
-so be careful with absolute paths. And second, if you put your dpmaster into a
-chroot jail, don't forget when starting or restart the log that its path will
-then be relative to the jail root directory. Watch out for the log directory not
-being created or having wrong permissions in this case.
+There are a couple of pitfalls you should be aware of when using a log file:
+first, if you run dpmaster as a daemon, remember that its working directory is
+the root directory, so be careful with absolute paths. And second, if you put
+your dpmaster into a chroot jail, don't forget when starting or restart the log
+that its path will then be relative to the jail root directory. Watch out for
+the log directory not being created or having wrong permissions in this case.
 
 
 6) GAME POLICY:
@@ -162,8 +160,8 @@ If you run an instance of dpmaster, we strongly encourage you to let it open to
 any game or player. Dpmaster has been developed for this particular usage and is
 well-suited for it.
 
-That said, if you want to filter which games are allowed or not on your master,
-you can use the "--game-policy" option. It makes dpmaster explicitly accept or
+That said, if you want to restrict which games are allowed on your master, you
+can use the "--game-policy" option. It makes dpmaster explicitly accept or
 reject network messages based on the game they are related to. For example:
 
         dpmaster --game-policy accept Quake3Arena Transfusion
@@ -171,17 +169,16 @@ reject network messages based on the game they are related to. For example:
 will force dpmaster to accept servers, and answer to requests, only when they're
 related to either Q3A or Transfusion. At the opposite:
 
-        dpmaster --game-policy reject AnnoyingGame1 BoringGame2
+        dpmaster --game-policy reject AnnoyingGame
 
-will accept any game messages, but those related to either AnnoyingGame1 or
-BoringGame2.
+will accept any game messages, but those related to AnnoyingGame.
 
 You can have multiple "--game-policy" lists on the same command line, but they
 must all use the same policy ("accept" or "reject").
 
 As you can see in the first example, "Quake3Arena" is the name you'll have to
-use for Q3A. The other game names only depend on what code names they choose to
-advertize their servers and make their requests.
+use for Q3A. The other game names only depend on what code names they choose for
+advertising their servers and making their requests.
 
 Two final warnings regarding this option. First, be careful, the names are case-
 sensitive. And second, this option expects at least 2 parameters (accept/reject,
@@ -197,10 +194,10 @@ called "-v" (certainly not what you want...).
 
 Address mapping allows you to tell dpmaster to transmit an IPv4 address instead
 of another one to the clients, in the "getserversResponse" messages. It can be
-useful in several cases. Imagine you have a dpmaster and a server behind a
-firewall, with local IPv4 addresses. You don't want the master to send the local
-server IP address. Instead, you want it to send the firewall address for
-instance.
+useful in several cases. Imagine for instance that you have a dpmaster and a
+server behind a firewall, with local IPv4 addresses. You don't want the master
+to send the local server IP address. Instead, you probably want it to send the
+firewall address.
 
 Address mappings are currently only available for IPv4 addresses. It appears
 IPv6 doesn't need such a mechanism, since NATs have been deprecated in this new
@@ -248,8 +245,9 @@ So there are 4 types of mappings:
 Finally, be aware that you can't declare an address mapping from or to
 "0.0.0.0", neither can you declare an address mapping to a loopback address
 (i.e. 127.x.y.z:p). Mapping from a loopback address is permitted though, and
-it's actually the only way to make dpmaster accept a server talking from a
-loopback address.
+it's actually one of the 2 only ways to make dpmaster accept a server talking
+from a loopback address (the other way being a command line option used for
+test purposes - do NOT run your master with this option!).
 
 
 8) LISTENING INTERFACES:
@@ -268,7 +266,7 @@ The first option is for listening on all IPv4 interfaces, the second for
 listening on all IPv6 interfaces, both on the default port. The only
 difference between this command line and one without any "--listen" option is
 that dpmaster will abort in the former if IPv4 or IPv6 isn't supported by your
-system, as you have explicitely requested those network sockets to be opened.
+system, as you have explicitly requested those network sockets to be opened.
 Note that if you don't want dpmaster to listen on IPv6 interfaces, you can
 easily do it by only specifying "-l 0.0.0.0" on the command line.
 
@@ -285,13 +283,13 @@ the resolution of this name gives) on port 546.
 
 IPv6 addressing has a few tricky aspects, and zone indices are one of them. If
 you encounter problems when configuring dpmaster for listening on a link-local
-IPv6 address, I recommend that you take a look at the paragraph regarding IPv6
-zone indices on this Wikipedia article: http://en.wikipedia.org/wiki/IPv6
+IPv6 address, I recommend that you take a look at the paragraph regarding zone
+indices in the Wikipedia article about IPv6 <http://en.wikipedia.org/wiki/IPv6>.
 
 
-9) CHANGES:
+9) VERSION HISTORY:
 
-    - version 2.0 RC1:
+    - version 2.0 RC2:
         Gametype filter support in the server list queries (see techinfo.txt)
         New option "--game-policy" to filter games (see GAME POLICY above)
         IPv6 support, including 2 new messages types (see techinfo.txt)
@@ -388,8 +386,8 @@ zone indices on this Wikipedia article: http://en.wikipedia.org/wiki/IPv6
 
 10) CONTACTS & LINKS:
 
-You can get more informations and the latest versions of DarkPlaces and
-dpmaster on the DarkPlaces home page: http://icculus.org/twilight/darkplaces/
+You can get more information and the latest versions of DarkPlaces and dpmaster
+on the DarkPlaces home page: http://icculus.org/twilight/darkplaces/
 
 If dpmaster doesn't fit your needs, please drop me an email (my name and email
 address are right below those lines). Your opinion and ideas may be very

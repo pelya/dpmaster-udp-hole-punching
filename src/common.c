@@ -70,8 +70,14 @@ static const char* BuildDateString (void)
 {
 	static char datestring [80];
 
-	strftime (datestring, sizeof(datestring), "%Y-%m-%d %H:%M:%S %Z",
-			  localtime(&crt_time));
+	size_t date_len = strftime (datestring, sizeof(datestring),
+								"%Y-%m-%d %H:%M:%S %Z", localtime(&crt_time));
+
+	// If the datestring buffer was too small, its contents
+	// is now "indeterminate", so we need to clear it
+	if (date_len == 0)
+		datestring[0] = '\0';
+
 	return datestring;
 }
 

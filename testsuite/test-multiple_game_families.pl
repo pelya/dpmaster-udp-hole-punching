@@ -58,12 +58,17 @@ foreach my $propertiesRef (@serverPropertiesList) {
 	my $serverRef = Server_New ($serverFamily);
 	Server_SetProperty ($serverRef, "id", $propertiesRef->{id});
 	Server_SetGameProperty ($serverRef, "protocol", $serverProtocol);
-	Server_SetGameProperty ($serverRef, "gamename", $serverGame);
+	if (defined $serverGame) {
+		Server_SetGameProperty ($serverRef, "gamename", $serverGame);
+	}
 
 	# Create the associated client
 	my $clientRef = Client_New ($serverFamily);
 	Client_SetGameProperty ($clientRef, "protocol", $serverProtocol);
-	Client_SetGameProperty ($clientRef, "gamename", $serverGame);
+	if (defined $serverGame) {
+		Client_SetGameProperty ($clientRef, "gamename", $serverGame);
+	}
 }
 
 Test_Run ("Servers running games from different game families");
+

@@ -22,6 +22,7 @@ use constant DEFAULT_DPMASTER_PORT => 27950;
 # Constants - game properties
 use constant DEFAULT_GAMENAME => "DpmasterTest";
 use constant DEFAULT_PROTOCOL => 5;
+use constant QUAKE3ARENA_GAMENAME => "Quake3Arena";
 use constant QUAKE3ARENA_PROTOCOL => 67;
 
 # Constants - misc
@@ -53,6 +54,7 @@ my $nextClientId = 0;
 
 # Global variables - misc
 my $currentTime = time;
+my $testStartTime = undef;
 my $mustExit = 0;
 my $testNumber = 0;
 my @failureDiagnostic = ();
@@ -192,6 +194,11 @@ sub Common_SetNonBlockingIO {
 #***************************************************************************
 sub Client_CheckServerList {
 	my $clientRef = shift;
+	
+	if ($clientRef->{serverListCount} > 0 and $clientRef->{cannotBeAnswered}) {
+		push @failureDiagnostic, "Client_CheckServerList: client $clientRef->{id} shouldn't have got any response, but it got $clientRef->{serverListCount}";
+		return 0;
+	}
 
 	my $clUseIPv6 = $clientRef->{useIPv6};
 	my $clPropertiesRef = $clientRef->{gameProperties};
@@ -321,7 +328,7 @@ sub Client_New {
 	# Game family specific variables
 	my ($gamename, $protocol);
 	if ($gameFamily == GAME_FAMILY_QUAKE3ARENA) {
-		$gamename = undef;
+		$gamename = QUAKE3ARENA_GAMENAME;
 		$protocol = QUAKE3ARENA_PROTOCOL;
 	}
 	else {  # $gameFamily == GAME_FAMILY_DARKPLACES
@@ -330,6 +337,7 @@ sub Client_New {
 	}
 
 	my $newClient = {
+		family => $gameFamily,
 		id => $id,
 		state => undef,  # undef -> Init -> WaitingServerList -> Done
 		port => $port,
@@ -337,7 +345,9 @@ sub Client_New {
 		serverList => [],
 		serverListCount => 0,  # Nb of server lists received
 		alwaysUseExtendedQuery => 0,
+		cannotBeAnswered => 0,
 		useIPv6 => 0,
+		queryFilters => "empty full",
 
 		gameProperties => {
 			gamename => $gamename,
@@ -360,17 +370,8 @@ sub Client_Run {
 
 	# "Init" state
 	if ($state eq "Init") {
-		# Wait for all the servers to be registered to ask for the server list
-		my $allServersRegistered = 1;
-		foreach my $serverRef (@serverList) {
-			if ($serverRef->{state} ne "Done" and
-				not $serverRef->{cannotBeRegistered}) {
-				$allServersRegistered = 0;
-				last;
-			}
-		}
-
-		if ($allServersRegistered) {
+		# TODO: find a smarter way to determine when the servers can start
+		if ($currentTime > $testStartTime + 1) {
 			Client_SendGetServers ($clientRef);
 			$clientRef->{state} = "WaitingServerList";
 		}
@@ -418,25 +419,36 @@ sub Client_SendGetServers {
 	Common_VerbosePrint ("Sending getservers from client $clientRef->{id}\n");
 
 	my $getservers = "\xFF\xFF\xFF\xFFgetservers";
+
+	my $useExtendedQuery;
 	if ($clientRef->{useIPv6} or $clientRef->{alwaysUseExtendedQuery}) {
+		$useExtendedQuery = 1;
 		$getservers .= "Ext";
+	}
+	else {
+		$useExtendedQuery = 0;
 	}
 
 	my $gameProp = $clientRef->{gameProperties};
-	if (defined ($gameProp->{gamename})) {
-		$getservers .= " $gameProp->{gamename}";
+
+	if ($clientRef->{family} != GAME_FAMILY_QUAKE3ARENA or $useExtendedQuery) {
+		if (defined ($gameProp->{gamename})) {
+			$getservers .= " $gameProp->{gamename}";
+		}
 	}
 	if (defined $gameProp->{protocol}) {
 		$getservers .= " $gameProp->{protocol}";
 	}
-	$getservers .= " empty full";
+	if (defined $clientRef->{queryFilters}) {
+		$getservers .= " $clientRef->{queryFilters}";
+	}
 
 	my $gametype = $gameProp->{gametype};
 	if (defined $gametype) {
 		my $gametypeFilter = "gametype=$gametype";
 
 		# Q3A uses shortcuts for the gametype test
-		if (not defined ($gameProp->{gamename})) {
+		if ($clientRef->{family} == GAME_FAMILY_QUAKE3ARENA) {
 			if ($gametype == 0) {
 				$gametypeFilter = "ffa";
 			}
@@ -451,7 +463,7 @@ sub Client_SendGetServers {
 			}
 		}
 
-		$getservers .= " " . $gametypeFilter;
+		$getservers .= " $gametypeFilter";
 	}
 
 	send ($clientRef->{socket}, $getservers, 0) or die "Can't send packet: $!";
@@ -577,6 +589,10 @@ sub Master_Start {
 
 	# Make the IOs from dpmaster's pipe non-blocking
 	Common_SetNonBlockingIO(\*DPMASTER_PROCESS);
+	
+	# Wait for the master to be ready
+	# TODO: find a better way to do this
+	sleep (0.5);
 }
 
 
@@ -628,7 +644,7 @@ sub Server_New {
 	# Game family specific variables
 	my ($gamename, $protocol, $masterProtocol);
 	if ($gameFamily == GAME_FAMILY_QUAKE3ARENA) {
-		$gamename = undef;
+		$gamename = QUAKE3ARENA_GAMENAME;
 		$protocol = QUAKE3ARENA_PROTOCOL;
 		$masterProtocol = "QuakeArena-1";
 	}
@@ -639,6 +655,7 @@ sub Server_New {
 	}
 
 	my $newServer = {
+		family => $gameFamily,
 		id => $id,
 		state => undef,  # undef -> Init -> WaitingGetInfos -> Done
 		heartbeatTime => undef,
@@ -735,7 +752,8 @@ sub Server_SendInfoResponse {
 
 	# Append all game properties to the message
 	while (my ($propKey, $propValue) = each %{$serverRef->{gameProperties}}) {
-		if (defined ($propValue)) {
+		if (defined ($propValue) and
+			($propKey ne "gamename" or $serverRef->{family} != GAME_FAMILY_QUAKE3ARENA)) {
 			$infoResponse .= "\\$propKey\\$propValue";
 		}
 	}
@@ -779,7 +797,7 @@ sub Server_Start {
 
 	$serverRef->{socket} = Common_CreateSocket($serverRef->{port}, $serverRef->{useIPv6});
 	$serverRef->{state} = "Init";
-	$serverRef->{heartbeatTime} = $currentTime + 0.5;
+	$serverRef->{heartbeatTime} = $currentTime;
 }
 
 	
@@ -832,6 +850,8 @@ sub Test_SignalHandler {
 # Test_StartAll
 #***************************************************************************
 sub Test_StartAll {
+	$testStartTime = $currentTime;
+
 	Master_Start ();
 
 	foreach my $server (@serverList) {

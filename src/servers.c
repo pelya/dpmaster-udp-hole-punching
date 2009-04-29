@@ -960,11 +960,11 @@ void Sv_PrintServerList (msg_level_t msg_level)
 
 			Com_Printf (msg_level,
 						" (timeout: %lu)\n"
-						"\tgame: \"%s\" (protocol: %d)\n"
+						"\tgame: \"%s\" (protocol: %d, gametype: %d)\n"
 						"\tstate: %s\n"
 						"\tchallenge: \"%s\" (timeout: %lu)\n",
 						(unsigned long)sv->timeout,
-						sv->gamename, sv->protocol,
+						sv->gamename, sv->protocol, sv->gametype,
 						state_string,
 						sv->challenge, (unsigned long)sv->challenge_timeout);
 		}

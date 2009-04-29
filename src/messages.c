@@ -86,49 +86,73 @@ Search an infostring for the value of a key
 */
 static char* SearchInfostring (const char* infostring, const char* key)
 {
-	static char value [256];
-	char crt_key [256];
-	size_t value_ind, key_ind;
+	static char str_buffer [256];
+	size_t buffer_ind;
 	char c;
 
 	if (*infostring++ != '\\')
 		return NULL;
 
-	value_ind = 0;
 	for (;;)
 	{
-		key_ind = 0;
+		buffer_ind = 0;
 
 		// Get the key name
 		for (;;)
 		{
 			c = *infostring++;
 
-			if (c == '\0')
-				return NULL;
-			if (c == '\\' || key_ind == sizeof (crt_key) - 1)
+			if (c == '\\')
 			{
-				crt_key[key_ind] = '\0';
+				str_buffer[buffer_ind] = '\0';
 				break;
 			}
 
-			crt_key[key_ind++] = c;
+			// If it's the end of the infostring
+			if (c == '\0')
+				return NULL;
+
+			// If the key name is too long, skip this key/value pair
+			if (buffer_ind == sizeof (str_buffer) - 1)
+			{
+				// Skip the rest of the key name
+				for (;;)
+				{
+					c = *infostring++;
+
+					if (c == '\0')
+						return NULL;
+					if (c == '\\')
+						break;
+				}
+
+				str_buffer[0] = '\0';
+				break;
+			}
+
+			str_buffer[buffer_ind++] = c;
 		}
 
 		// If it's the key we are looking for, save it in "value"
-		if (!strcmp (crt_key, key))
+		if (!strcmp (str_buffer, key))
 		{
+			buffer_ind = 0;
+
 			for (;;)
 			{
 				c = *infostring++;
 
-				if (c == '\0' || c == '\\' || value_ind == sizeof (value) - 1)
+				if (c == '\0' || c == '\\')
 				{
-					value[value_ind] = '\0';
-					return value;
+					str_buffer[buffer_ind] = '\0';
+					return str_buffer;
 				}
 
-				value[value_ind++] = c;
+				// If the value name is too long, ignore it
+				if (buffer_ind == sizeof (str_buffer) - 1)
+					return NULL;
+
+				str_buffer[buffer_ind++] = c;
 			}
 		}
 
@@ -232,6 +256,7 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 	server_t* sv;
 	int protocol;
 	int gametype = 0;
+	qboolean use_dp_protocol;
 	qboolean opt_empty = false;
 	qboolean opt_full = false;
 	qboolean opt_ipv4 = (! extended_request);
@@ -241,27 +266,50 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 	char* option_ptr;
 	unsigned int nb_servers = 0;
 
-	// Check if there's a name before the protocol number
-	// In this case, the message comes from a DarkPlaces-compatible client
-	protocol = (int)strtol (msg, &end_ptr, 0);
-	if (end_ptr == msg || (*end_ptr != ' ' && *end_ptr != '\0'))
+	if (extended_request)
+		use_dp_protocol = true;
+	else
+	{
+		// Check if there's a name before the protocol number
+		// In this case, the message comes from a DarkPlaces-compatible client
+		protocol = (int)strtol (msg, &end_ptr, 0);
+		use_dp_protocol = (end_ptr == msg || (*end_ptr != ' ' && *end_ptr != '\0'));
+	}
+
+	if (use_dp_protocol)
 	{
 		char *space;
 
-		strncpy (gamename, msg, sizeof (gamename) - 1);
+		// Skip leading spaces
+		msg_ptr = msg;
+		while (*msg_ptr == ' ')
+			msg_ptr++;
+
+		if (*msg_ptr == '\0')
+		{
+			Com_Printf (MSG_WARNING,
+						"> WARNING: Rejecting %s from %s (missing game name and protocol number)\n",
+						extended_request ? "getserversExt" : "getservers",
+						peer_address);
+			return;
+		}
+
+		// Read the game name
+		strncpy (gamename, msg_ptr, sizeof (gamename) - 1);
 		gamename[sizeof (gamename) - 1] = '\0';
 		space = strchr (gamename, ' ');
 		if (space)
 			*space = '\0';
-		msg_ptr = msg + strlen (gamename) + 1;
+		msg_ptr = msg_ptr + strlen (gamename);
 
+		// Read the protocol number
 		protocol = (int)strtol (msg_ptr, &end_ptr, 0);
 		if (end_ptr == msg_ptr || (*end_ptr != ' ' && *end_ptr != '\0'))
 		{
 			Com_Printf (MSG_WARNING,
 						"> WARNING: Rejecting %s from %s (missing or invalid protocol number)\n",
 						extended_request ? "getserversExt" : "getservers",
-						peer_address, gamename);
+						peer_address);
 			return;
 		}
 	}
@@ -270,7 +318,7 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 	{
 		strncpy (gamename, GAMENAME_Q3A, sizeof (gamename) - 1);
 		gamename[sizeof (gamename) - 1] = '\0';
-		msg_ptr = msg;
+		msg_ptr = end_ptr;
 	}
 
 	Com_Printf (MSG_NORMAL, "> %s ---> %s (%s)\n",
