@@ -7,7 +7,7 @@ use testlib;
 Master_SetProperty ("cmdlineoptions", "");
 
 my $serverRef = Server_New ();
-Server_SetProperty ($serverRef, "cannotBeRegistered", 1);
+Server_SetProperty ($serverRef, "cannotBeAnswered", 1);
 
 my $clientRef = Client_New ();
 

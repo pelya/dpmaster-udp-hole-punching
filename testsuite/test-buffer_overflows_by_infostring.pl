@@ -8,9 +8,6 @@ my $longValue = "abcdefghijklmnopqrstuvwxyz" x 12;  # 26 * 12 = 312 chars
 my $clientRef = Client_New ();
 my $serverRef = Server_New ();
 
-# The gamename is too long for registration, but it's not what we are testing
-Server_SetProperty ($serverRef, "cannotBeRegistered", 1);
-
 # 1st test - a long value
 my $previousGamename = Server_GetGameProperty ($serverRef, "gamename");
 Server_SetGameProperty ($serverRef, "gamename", $longValue);

@@ -38,6 +38,7 @@ use constant {
 my $dpmasterPid = undef;
 my %dpmasterProperties = (
 	cmdlineoptions => DEFAULT_DPMASTER_OPTIONS,
+	gamePolicy => undef,
 	port => DEFAULT_DPMASTER_PORT,
 	exitvalue => undef
 );
@@ -229,7 +230,7 @@ sub Client_CheckServerList {
 		}
 
 		# Skip this server if it shouldn't be registered
-		next if ($serverRef->{cannotBeRegistered});
+		next if ($serverRef->{cannotBeAnswered} or $serverRef->{cannotBeRegistered});
 
 		my $fullAddress = ($svUseIPv6 ? "[" . IPV6_ADDRESS . "]" : IPV4_ADDRESS);
 		$fullAddress .= ":" . $serverRef->{port};
@@ -527,6 +528,38 @@ sub Client_Stop {
 
 	
 #***************************************************************************
+# Master_IsGameAccepted
+#***************************************************************************
+sub Master_IsGameAccepted {
+	my $gamename = shift;
+	
+	my $gamePolicy = $dpmasterProperties{gamePolicy};
+	if (not defined ($gamePolicy)) {
+		return 1;
+	}
+	
+	my $returnValueWhenFound = ($gamePolicy->{policy} eq "accept");
+	
+	my $returnedValue;
+	if (grep { $_ eq $gamename } @{$gamePolicy->{gamenames}}) {
+		$returnedValue = $returnValueWhenFound;
+	}
+	else {
+		$returnedValue = not $returnValueWhenFound;
+	}
+	
+	if ($returnedValue) {
+		Common_VerbosePrint ("Master accepts game \"$gamename\"\n");
+	}
+	else {
+		Common_VerbosePrint ("Master REJECTS game \"$gamename\"\n");
+	}
+	
+	return $returnedValue;
+}
+
+	
+#***************************************************************************
 # Master_Run
 #***************************************************************************
 sub Master_Run {
@@ -556,6 +589,18 @@ sub Master_SetProperty {
 	my $propertyName = shift;
 	my $propertyValue = shift;
 	
+	# Check the validity of the property, if possible
+	if ($propertyName eq "gamePolicy" and defined $propertyValue) {
+		my $policy = $propertyValue->{policy};
+		if ($policy ne "accept" and $policy ne "reject") {
+			die "Master_SetProperty: Invalid game policy \"$policy\" (must be \"accept\" or \"reject\")";
+		}
+		
+		if (scalar @{$propertyValue->{gamenames}} <= 0) {
+			die "Master_SetProperty: no game names specified for the game policy";
+		}
+	}
+
 	$dpmasterProperties{$propertyName} = $propertyValue;
 }
 
@@ -579,6 +624,14 @@ sub Master_Start {
 	my $additionalOptions = $dpmasterProperties{cmdlineoptions};
 	if (defined ($additionalOptions) and $additionalOptions ne "") {
 		$dpmasterCmdLine .= " " . $additionalOptions;
+	}
+	
+	my $gamePolicyRef = $dpmasterProperties{gamePolicy};
+	if (defined $gamePolicyRef) {
+		$dpmasterCmdLine .= " --game-policy $gamePolicyRef->{policy}";
+		foreach my $gamename (@{$gamePolicyRef->{gamenames}}) {
+			$dpmasterCmdLine .= " $gamename";
+		}
 	}
 
 	Common_VerbosePrint ("Launching dpmaster as: $dpmasterCmdLine\n");
@@ -663,6 +716,7 @@ sub Server_New {
 		masterProtocol => $masterProtocol,
 		socket => undef,
 		cannotBeRegistered => 0,
+		cannotBeAnswered => 0,
 		useIPv6 => 0,
 		
 		gameProperties => {
@@ -705,6 +759,12 @@ sub Server_Run {
 			if ($recvPacket =~ /^\xFF\xFF\xFF\xFFgetinfo +(\S+)$/) {
 				my $challenge = $1;
 				Common_VerbosePrint ("Server $serverRef->{id} received a getinfo with challenge \"$challenge\"\n");
+				
+				if ($serverRef->{cannotBeAnswered}) {
+					push @failureDiagnostic, "Server_Run: server $serverRef->{id} got a getinfo message when it should have been ignored by the master";
+					$mustExit = 1;
+				}
+
 				Server_SendInfoResponse ($serverRef, $challenge);
 				$serverRef->{state} = "Done";
 			}
@@ -757,6 +817,8 @@ sub Server_SendInfoResponse {
 			$infoResponse .= "\\$propKey\\$propValue";
 		}
 	}
+	
+	$serverRef->{cannotBeRegistered} = not (Server_ValidateInfoResponse ($infoResponse) and Master_IsGameAccepted ($serverRef->{gameProperties}{gamename}));
 
 	send ($serverRef->{socket}, $infoResponse, 0) or die "Can't send packet: $!";
 }
@@ -812,6 +874,58 @@ sub Server_Stop {
 		close ($socket);
 		$serverRef->{socket} = undef;
 	}
+
+	$serverRef->{cannotBeRegistered} = 0;
+}
+
+	
+#***************************************************************************
+# Server_ValidateInfoResponse
+#***************************************************************************
+sub Server_ValidateInfoResponse {
+	my $infoReponse = shift;
+	
+	if ($infoReponse =~ /\xFF\xFF\xFF\xFFinfoResponse\x0A\\(.*)/) {
+		my @infostringElts = split (/\\/, $1);
+		if (scalar @infostringElts % 2 == 0) {
+			my %infostringMap = @infostringElts;
+			
+			# Look for keys or values with an unsupported length (>=256)
+			# NOTE that it's an implementation-specific limit. The protocol
+			# itself puts no limit to the length of keys and values.
+			foreach my $key (keys (%infostringMap)) {
+				#print ">>> \"", $key, "\"=\"", $infostringMap{$key}, "\"\n";
+				if (length ($key) >= 256) {
+					Common_VerbosePrint ("infoResponse NOT valided: key \"$key\" is too long\n");
+					return 0;
+				}
+				if (length ($infostringMap{$key}) >= 256) {
+					Common_VerbosePrint ("infoResponse NOT valided: value \"$infostringMap{$key}\" is too long\n");
+					return 0;
+				}
+			}
+
+			my $gamename = $infostringMap{gamename};
+			if (defined $gamename) {
+				# Check that the gamename value contains no whitespaces
+				if (index ($gamename, " ") > 0) {
+					Common_VerbosePrint ("infoResponse NOT valided: gamename contains whitespaces\n");
+					return 0;
+				}
+			}
+			
+			# Check that there is a "clients" key
+			if (not defined $infostringMap{clients}) {
+				Common_VerbosePrint ("infoResponse NOT valided: no \"clients\" key\n");
+				return 0;
+			}
+
+			Common_VerbosePrint ("infoResponse valided\n");
+			return 1;
+		}		
+	}
+	
+	return 0;
 }
 
 
