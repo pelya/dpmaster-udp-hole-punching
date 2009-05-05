@@ -148,9 +148,9 @@ qboolean Com_IsLogEnabled (void)
 
 /*
 ====================
-Com_IsLogEnabled
+Com_SetLogFilePath
 
-Test if the logging is enabled
+Change the log file path
 ====================
 */
 qboolean Com_SetLogFilePath (const char* filepath)
@@ -186,7 +186,11 @@ qboolean Com_UpdateLogStatus (qboolean init)
 
 		log_file = fopen (log_filepath, "a");
 		if (log_file == NULL)
+		{
+			Com_Printf (MSG_ERROR, "> ERROR: can't open log file \"%s\"\n",
+						log_filepath);
 			return false;
+		}
 
 		// Make the log stream fully buffered (instead of line buffered)
 		setvbuf (log_file, NULL, _IOFBF, SETVBUF_DEFAULT_SIZE);
@@ -220,8 +224,6 @@ Print a message to screen, depending on its verbose level
 */
 void Com_Printf (msg_level_t msg_level, const char* format, ...)
 {
-	va_list args;
-
 	// If the message level is above the maximum level, or if we output
 	// neither to the console nor to a log file, there nothing to do
 	if (msg_level > max_msg_level ||
@@ -241,12 +243,22 @@ void Com_Printf (msg_level_t msg_level, const char* format, ...)
 		print_date = false;
 	}
 
-	va_start (args, format);
 	if (daemon_state < DAEMON_STATE_EFFECTIVE)
+	{
+		va_list args;
+
+		va_start (args, format);
 		vprintf (format, args);
+		va_end (args);
+	}
 	if (log_file != NULL)
+	{
+		va_list args;
+
+		va_start (args, format);
 		vfprintf (log_file, format, args);
-	va_end (args);
+		va_end (args);
+	}
 }
 
 
