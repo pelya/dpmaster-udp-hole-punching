@@ -4,11 +4,7 @@ use strict;
 use testlib;
 
 
-# We have to remove "--hash-ports" from the command line for the test to be valid
-my $cmdlineoptions = Master_GetProperty ("cmdlineoptions");
-$cmdlineoptions =~ s/--hash-ports//;
-
-Master_SetProperty ("cmdlineoptions", $cmdlineoptions . " -N 2");
+Master_SetProperty ("maxNbServersPerAddr", 2);
 
 # The 2 first servers should be accepted
 my $server1Ref = Server_New ();

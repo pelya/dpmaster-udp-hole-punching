@@ -289,11 +289,12 @@ indices in the Wikipedia article about IPv6 <http://en.wikipedia.org/wiki/IPv6>.
 
 9) VERSION HISTORY:
 
-    - version 2.0 RC2:
+    - version 2.0 RC3:
         Gametype filter support in the server list queries (see techinfo.txt)
         New option "--game-policy" to filter games (see GAME POLICY above)
         IPv6 support, including 2 new messages types (see techinfo.txt)
         Logging support (see LOGGING above)
+        Only the last packet of a getservers response get an EOT mark now
         The default number of servers is now 4096
         The default hash size has been increased to 10 bits
         Improved listening interface option (see LISTENING INTERFACES above)

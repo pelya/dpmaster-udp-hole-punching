@@ -6,7 +6,6 @@ use testlib;
 
 my $clientRef = Client_New ();
 Client_SetProperty ($clientRef, "alwaysUseExtendedQuery", 1);
-Client_SetProperty ($clientRef, "cannotBeAnswered", 1);
 
 Client_SetGameProperty ($clientRef, "gamename", undef);
 Test_Run ("Client using an extended query without a game name");

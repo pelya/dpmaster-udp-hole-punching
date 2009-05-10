@@ -264,12 +264,18 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 	qboolean opt_gametype = false;
 	char filter_options [MAX_PACKET_SIZE_IN];
 	char* option_ptr;
-	unsigned int nb_servers = 0;
+	unsigned int nb_servers;
+	const char* request_name;
 
 	if (extended_request)
+	{
+		request_name = "getserversExt";
 		use_dp_protocol = true;
+	}
 	else
 	{
+		request_name = "getservers";
+
 		// Check if there's a name before the protocol number
 		// In this case, the message comes from a DarkPlaces-compatible client
 		protocol = (int)strtol (msg, &end_ptr, 0);
@@ -289,8 +295,7 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 		{
 			Com_Printf (MSG_WARNING,
 						"> WARNING: Rejecting %s from %s (missing game name and protocol number)\n",
-						extended_request ? "getserversExt" : "getservers",
-						peer_address);
+						request_name, peer_address);
 			return;
 		}
 
@@ -308,8 +313,7 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 		{
 			Com_Printf (MSG_WARNING,
 						"> WARNING: Rejecting %s from %s (missing or invalid protocol number)\n",
-						extended_request ? "getserversExt" : "getservers",
-						peer_address);
+						request_name, peer_address);
 			return;
 		}
 	}
@@ -321,16 +325,14 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 		msg_ptr = end_ptr;
 	}
 
-	Com_Printf (MSG_NORMAL, "> %s ---> %s (%s)\n",
-				extended_request ? "getserversExt" : "getservers", peer_address,
+	Com_Printf (MSG_NORMAL, "> %s ---> %s (%s)\n", peer_address, request_name,
 				gamename);
 
 	if (! Game_IsAccepted (gamename))
 	{
 		Com_Printf (MSG_WARNING,
 					"> WARNING: Rejecting %s from %s (game \"%s\" is not accepted)\n",
-					extended_request ? "getserversExt" : "getservers",
-					peer_address, gamename);
+					request_name, peer_address, gamename);
 		return;
 	}
 
@@ -399,40 +401,10 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 	memcpy(packet, packetheader, headersize);
 
 	// Add every relevant server
-	for (sv = Sv_GetFirst (); /* see below */;  sv = Sv_GetNext ())
+	nb_servers = 0;
+	for (sv = Sv_GetFirst (); sv != NULL;  sv = Sv_GetNext ())
 	{
-		// If we're done, or if the packet is full, send the packet
-		if (sv == NULL || packetind > sizeof (packet) - (7 + 7))
-		{
-			const char* request_name;
-
-			// End Of Transmission
-			packet[packetind    ] = '\\';
-			packet[packetind + 1] = 'E';
-			packet[packetind + 2] = 'O';
-			packet[packetind + 3] = 'T';
-			packet[packetind + 4] = '\0';
-			packet[packetind + 5] = '\0';
-			packet[packetind + 6] = '\0';
-			packetind += 7;
-
-			// Send the packet to the client
-			request_name = (extended_request ? "getserversExtResponse" : "getserversResponse");
-			if (sendto (recv_socket, packet, packetind, 0,
-					(const struct sockaddr*)addr, addrlen) < 0)
-				Com_Printf (MSG_WARNING, "> WARNING: can't send %s (%s)\n",
-							request_name, Sys_GetLastNetErrorString ());
-			else
-				Com_Printf (MSG_NORMAL, "> %s <--- %s (%u servers)\n",
-							peer_address, request_name, nb_servers);
-
-			// If we're done
-			if (sv == NULL)
-				return;
-			
-			// Reset the packet index (no need to change the header)
-			packetind = headersize;
-		}
+		size_t next_sv_size;
 
 		assert (sv->state != sv_state_unused_slot);
 
@@ -483,6 +455,24 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 			continue;
 		}
 
+		// If the packet doesn't have enough free space for this server
+		next_sv_size = (sv->address.ss_family == AF_INET ? 4 : 16) + 3;
+		if (packetind + next_sv_size > sizeof (packet))
+		{
+			// Send the packet to the client
+			if (sendto (recv_socket, packet, packetind, 0,
+					(const struct sockaddr*)addr, addrlen) < 0)
+				Com_Printf (MSG_WARNING, "> WARNING: can't send %s (%s)\n",
+							request_name, Sys_GetLastNetErrorString ());
+			else
+				Com_Printf (MSG_NORMAL, "> %s <--- %sResponse (%u servers)\n",
+							peer_address, request_name, nb_servers);
+			
+			// Reset the packet index (no need to change the header)
+			packetind = headersize;
+			nb_servers = 0;
+		}
+
 		if (sv->address.ss_family == AF_INET)
 		{
 			const struct sockaddr_in* sv_sockaddr;
@@ -528,7 +518,6 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 						sv_port);
 
 			packetind += 7;
-			nb_servers++;
 		}
 		else
 		{
@@ -551,9 +540,46 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 			packet[packetind    ] = sv_port >> 8;
 			packet[packetind + 1] = sv_port & 0xFF;
 			packetind += 2;
-			nb_servers++;
 		}
+
+		nb_servers++;
 	}
+
+	// If the packet doesn't have enough free space for the EOT mark
+	if (packetind + 7 > sizeof (packet))
+	{
+		// Send the packet to the client
+		if (sendto (recv_socket, packet, packetind, 0,
+				(const struct sockaddr*)addr, addrlen) < 0)
+			Com_Printf (MSG_WARNING, "> WARNING: can't send %s (%s)\n",
+						request_name, Sys_GetLastNetErrorString ());
+		else
+			Com_Printf (MSG_NORMAL, "> %s <--- %sResponse (%u servers)\n",
+						peer_address, request_name, nb_servers);
+		
+		// Reset the packet index (no need to change the header)
+		packetind = headersize;
+		nb_servers = 0;
+	}
+
+	// End Of Transmission
+	packet[packetind    ] = '\\';
+	packet[packetind + 1] = 'E';
+	packet[packetind + 2] = 'O';
+	packet[packetind + 3] = 'T';
+	packet[packetind + 4] = '\0';
+	packet[packetind + 5] = '\0';
+	packet[packetind + 6] = '\0';
+	packetind += 7;
+
+	// Send the packet to the client
+	if (sendto (recv_socket, packet, packetind, 0,
+			(const struct sockaddr*)addr, addrlen) < 0)
+		Com_Printf (MSG_WARNING, "> WARNING: can't send %s (%s)\n",
+					request_name, Sys_GetLastNetErrorString ());
+	else
+		Com_Printf (MSG_NORMAL, "> %s <--- %sResponse (%u servers)\n",
+					peer_address, request_name, nb_servers);
 }
 
 

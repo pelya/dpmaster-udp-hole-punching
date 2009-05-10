@@ -4,8 +4,7 @@ use strict;
 use testlib;
 
 
-my $cmdlineoptions = Master_GetProperty ("cmdlineoptions");
-Master_SetProperty ("cmdlineoptions", $cmdlineoptions . " -n 2");
+Master_SetProperty ("maxNbServers", 2);
 
 # The 2 first servers should be accepted
 my $server1Ref = Server_New ();

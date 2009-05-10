@@ -4,11 +4,9 @@ use strict;
 use testlib;
 
 
-Master_SetProperty ("cmdlineoptions", "");
+Master_SetProperty ("allowLoopback", 0);
 
 my $serverRef = Server_New ();
-Server_SetProperty ($serverRef, "cannotBeAnswered", 1);
-
 my $clientRef = Client_New ();
 
 Test_Run ("No servers allowed on loopback interfaces");

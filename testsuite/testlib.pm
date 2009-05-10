@@ -14,9 +14,8 @@ use Time::HiRes qw(time sleep);
 
 # Constants - dpmaster
 use constant DEFAULT_DPMASTER_PATH => "../src/dpmaster";
-use constant DEFAULT_DPMASTER_OPTIONS => "--allow-loopback --hash-ports";
-use constant IPV4_ADDRESS => "127.0.0.1";
-use constant IPV6_ADDRESS => "::1";
+use constant IPV4_LOOPBACK_ADDRESS => "127.0.0.1";
+use constant IPV6_LOOPBACK_ADDRESS => "::1";
 use constant DEFAULT_DPMASTER_PORT => 27950;
 
 # Constants - game properties
@@ -37,10 +36,17 @@ use constant {
 # Global variables - dpmaster
 my $dpmasterPid = undef;
 my %dpmasterProperties = (
-	cmdlineoptions => DEFAULT_DPMASTER_OPTIONS,
+	exitvalue => undef,
+	remoteAddress => undef,
+
+	# Command line options
+	allowLoopback => 1,
 	gamePolicy => undef,
+	hashPorts => 1,
+	maxNbServers => undef,
+	maxNbServersPerAddr => undef,
 	port => DEFAULT_DPMASTER_PORT,
-	exitvalue => undef
+	extraCmdlineOptions => [],
 );
 
 # Global variables - servers
@@ -126,28 +132,40 @@ sub Common_CreateSocket {
 	my $useIPv6 = shift;
 
 	my $proto = getprotobyname("udp");
-	my ($family, $addr, $dpmasterAddr);
+	my ($family, $localAddr, $addr, $dpmasterAddr, $loopbackAddr);
 	if ($useIPv6) {
-		# Build the address for connect()
-		my @res = getaddrinfo (IPV6_ADDRESS, $dpmasterProperties{port}, AF_INET6, SOCK_DGRAM, $proto, AI_NUMERICHOST);
-		if (scalar @res < 5) {
-			die "Can't resolve address [" . IPV6_ADDRESS . "]:$port";
-		}
-		my ($sockType, $canonName);
-        ($family, $sockType, $proto, $dpmasterAddr, $canonName, @res) = @res;
-		
-		# Build the address for bind()
-		@res = getaddrinfo (IPV6_ADDRESS, $port, AF_INET6, SOCK_DGRAM, $proto, AI_NUMERICHOST | AI_PASSIVE);
-		if (scalar @res < 5) {
-			die "Can't resolve address [" . IPV6_ADDRESS . "]:$port";
-		}
-        ($family, $sockType, $proto, $addr, $canonName, @res) = @res;
+		$family = AF_INET6;
+		$loopbackAddr = IPV6_LOOPBACK_ADDRESS;
 	}
 	else {
-		$family = PF_INET;
-		$addr = sockaddr_in ($port, INADDR_LOOPBACK);
-		$dpmasterAddr = sockaddr_in ($dpmasterProperties{port}, INADDR_LOOPBACK);
+		$family = AF_INET;
+		$loopbackAddr = IPV4_LOOPBACK_ADDRESS;
 	}
+
+	my ($connectAddr, $bindAddr);
+	if ($dpmasterProperties{remoteAddress}) {
+		$connectAddr = $dpmasterProperties{remoteAddress};
+		$bindAddr = "";
+	}
+	else {
+		$connectAddr = $loopbackAddr;
+		$bindAddr = $loopbackAddr;
+	}
+
+	# Build the address for connect()
+	my @res = getaddrinfo ($connectAddr, $dpmasterProperties{port}, $family, SOCK_DGRAM, $proto, 0);
+	if (scalar @res < 5) {
+		die "Can't resolve address \"$connectAddr\" (port: $port)";
+	}
+	my ($sockType, $canonName);
+    ($family, $sockType, $proto, $dpmasterAddr, $canonName, @res) = @res;
+	
+	# Build the address for bind()
+	@res = getaddrinfo ($bindAddr, $port, $family, SOCK_DGRAM, $proto, AI_PASSIVE);
+	if (scalar @res < 5) {
+		die "Can't resolve address \"$bindAddr\" (port: $port)";
+	}
+    ($family, $sockType, $proto, $addr, $canonName, @res) = @res;
 
 	# Open an UDP socket
 	my $socket;
@@ -196,9 +214,17 @@ sub Common_SetNonBlockingIO {
 sub Client_CheckServerList {
 	my $clientRef = shift;
 	
-	if ($clientRef->{serverListCount} > 0 and $clientRef->{cannotBeAnswered}) {
-		push @failureDiagnostic, "Client_CheckServerList: client $clientRef->{id} shouldn't have got any response, but it got $clientRef->{serverListCount}";
-		return 0;
+	if ($clientRef->{serverListCount} > 0) {
+		if ($clientRef->{cannotBeAnswered}) {
+			push @failureDiagnostic, "Client_CheckServerList: client $clientRef->{id} shouldn't have got any response, but it got $clientRef->{serverListCount}";
+			return 0;
+		}
+	}
+	else {
+		if (not $clientRef->{cannotBeAnswered}) {
+			push @failureDiagnostic, "Client_CheckServerList: client $clientRef->{id} should have received a response, but it did not";
+			return 0;
+		}
 	}
 
 	my $clUseIPv6 = $clientRef->{useIPv6};
@@ -209,7 +235,7 @@ sub Client_CheckServerList {
 
 	my $returnValue = 1;
 
-	my @clientServerList = @{$clientRef->{serverList}};
+	my %clientServerList = %{$clientRef->{serverList}};
 	foreach my $serverRef (@serverList) {
 		my $svUseIPv6 = $serverRef->{useIPv6};
 		my $svPropertiesRef = $serverRef->{gameProperties};
@@ -232,27 +258,22 @@ sub Client_CheckServerList {
 		# Skip this server if it shouldn't be registered
 		next if ($serverRef->{cannotBeAnswered} or $serverRef->{cannotBeRegistered});
 
-		my $fullAddress = ($svUseIPv6 ? "[" . IPV6_ADDRESS . "]" : IPV4_ADDRESS);
+		my $fullAddress = ($svUseIPv6 ? "[" . IPV6_LOOPBACK_ADDRESS . "]" : IPV4_LOOPBACK_ADDRESS);
 		$fullAddress .= ":" . $serverRef->{port};
 		
-		my $found = 0;
-		foreach my $index (0 .. $#clientServerList) {
-			if ($clientServerList[$index] eq $fullAddress) {
-				$found = 1;
-				Common_VerbosePrint ("CheckServerList: found server $fullAddress\n");
-				splice (@clientServerList, $index, 1);
-				last;
-			}
+		if (exists $clientServerList{$fullAddress}) {
+			Common_VerbosePrint ("CheckServerList: found server $fullAddress\n");
+			delete $clientServerList{$fullAddress}
 		}
-		if (not $found) {
+		else {
 			push @failureDiagnostic, "CheckServerList: server $fullAddress missed by client $clientRef->{id}";
 			$returnValue = 0;
 		}
 	}
 	
 	# If there is unknown servers in the list
-	if (scalar @clientServerList > 0) {
-		foreach my $unknownServer (@clientServerList) {
+	if (scalar %clientServerList) {
+		foreach my $unknownServer (keys %clientServerList) {
 			push @failureDiagnostic, "CheckServerList: server $unknownServer erroneously sent to client $clientRef->{id}";
 		}
 		$returnValue = 0;
@@ -266,45 +287,58 @@ sub Client_CheckServerList {
 # Client_HandleGetServersReponse
 #***************************************************************************
 sub Client_HandleGetServersReponse {
-	use bytes;
-
 	my $clientRef = shift;
 	my $addrList = shift;
 	my $extended = shift;
 
 	my $strlen = length($addrList);
 	Common_VerbosePrint ("Client received a getservers" . ($extended ? "Ext" : "") . "Response\n");
-	
-	for (;;) {
-		if ($addrList =~ s/^\\(.{4})(.{2})([\\\/].*|)$/$3/) {
-			my $address = $1;
-			my $port = unpack ("n", $2);
+		
+	$clientRef->{serverListCount}++;
+
+	while ($addrList) {
+		my ($address, $port, $fullAddress);
+
+		my $separator = unpack ("a1", $addrList);
+		if ($separator eq "\\") {
+			($separator, $address, $port) = unpack ("a1a4n", $addrList);
 
 			# If end of transmission is found
 			if ($address eq "EOT\0" and $port == 0) {
 				Common_VerbosePrint ("    * End Of Transmission\n");
-				last;
+				return 1;
 			}
 
-			my $fullAddress = inet_ntoa ($address) . ":" . $port;
-			push @{$clientRef->{serverList}}, $fullAddress;
+			$fullAddress = inet_ntoa ($address) . ":" . $port;
 			Common_VerbosePrint ("    * Found a server at $fullAddress\n");
+			
+			$addrList = substr ($addrList, 7);
 		}
-		elsif ($addrList =~ s/^\/(.{16})(.{2})([\\\/].*|)$/$3/) {
-			my $address = $1;
-			my $port = unpack ("n", $2);
+		elsif ($separator eq "/") {
+			($separator, $address, $port) = unpack ("a1a16n", $addrList);
 
-			my $fullAddress = "[" . inet_ntop (AF_INET6, $address) . "]:" . $port;
-			push @{$clientRef->{serverList}}, $fullAddress;
+			$fullAddress = "[" . inet_ntop (AF_INET6, $address) . "]:" . $port;
 			Common_VerbosePrint ("    * Found a server at $fullAddress\n");
+			
+			$addrList = substr ($addrList, 19);
 		}
 		else {
 			Common_VerbosePrint ("    * WARNING: unexpected end of list\n");
 			last;
 		}
+
+		my $clientServerListRef =  $clientRef->{serverList};
+		if (exists $clientServerListRef->{$fullAddress}) {
+			Common_VerbosePrint ("        * ERROR: already in the server list!\n");
+			$clientServerListRef->{$fullAddress} += 1;
+			push @failureDiagnostic, "Client_HandleGetServersReponse: client $clientRef->{id} received address $fullAddress $clientServerListRef->{$fullAddress} times";
+		}
+		else {
+			$clientServerListRef->{$fullAddress} = 1;
+		}
 	}
-	
-	$clientRef->{serverListCount}++;
+
+	return 0;
 }
 
 
@@ -343,7 +377,7 @@ sub Client_New {
 		state => undef,  # undef -> Init -> WaitingServerList -> Done
 		port => $port,
 		socket => undef,
-		serverList => [],
+		serverList => {},
 		serverListCount => 0,  # Nb of server lists received
 		alwaysUseExtendedQuery => 0,
 		cannotBeAnswered => 0,
@@ -383,14 +417,16 @@ sub Client_Run {
 		my $recvPacket;
 		if (recv ($clientRef->{socket}, $recvPacket, 1500, 0)) {
 			# If we received a server list, unpack it
-			if ($recvPacket =~ /^\xFF\xFF\xFF\xFFgetservers(Ext)?Response([\\\/].*)$/) {
+			if ($recvPacket =~ /^\xFF\xFF\xFF\xFFgetservers(Ext)?Response[\\\/]/) {
 				my $extended = ((defined $1) and ($1 eq "Ext"));
-				my $addrList = $2;
+				my $addrList = substr ($recvPacket, $extended ? 25 : 22);
 
-				Client_HandleGetServersReponse($clientRef, $addrList, $extended);
-
-				# FIXME: handle the case when the master sends the list in more than 1 packet
-				$clientRef->{state} = "Done";
+				if (Client_HandleGetServersReponse($clientRef, $addrList, $extended)) {
+					$clientRef->{state} = "Done";
+				}
+				else {
+					Common_VerbosePrint ("No EOT mark found. Waiting for the next packet\n");
+				}
 			}
 			else {
 				# FIXME: report the error correctly instead of just dying
@@ -468,6 +504,8 @@ sub Client_SendGetServers {
 	}
 
 	send ($clientRef->{socket}, $getservers, 0) or die "Can't send packet: $!";
+
+	$clientRef->{cannotBeAnswered} = not (Client_ValidateGetServers ($getservers) and Master_IsGameAccepted ($gameProp->{gamename}));
 }
 
 
@@ -492,7 +530,7 @@ sub Client_SetProperty {
 	my $propertyValue = shift;
 	
 	# If the property doesn't exist, there is a problem in the caller script
-	die if (not exists $clientRef->{$propertyName});
+	die "Client_SetProperty: property \"$propertyName\" is unknown" if (not exists $clientRef->{$propertyName});
 
 	$clientRef->{$propertyName} = $propertyValue;
 }
@@ -522,8 +560,43 @@ sub Client_Stop {
 	}
 
 	# Clean the server list
-	$clientRef->{serverList} = [];
+	$clientRef->{serverList} = {};
 	$clientRef->{serverListCount} = 0;
+}
+
+	
+#***************************************************************************
+# Client_ValidateGetServers
+#***************************************************************************
+sub Client_ValidateGetServers {
+	my $getservers = shift;
+	
+	if ($getservers =~ /^\xFF\xFF\xFF\xFFgetservers(Ext)? (.*)$/) {
+		my $isExtended = (defined $1 and $1 eq "Ext");
+		my $payload = $2;
+		
+		if ($payload =~ /^ *([^ ]+ )?(-?\d+)( .*)?$/) {
+			my $gamename = $1;
+			my $protocol = $2;
+			my $filters = $3;
+			
+			if (not defined $gamename and $isExtended) {
+				Common_VerbosePrint ("getservers NOT valided: extended query is missing the game name\n");
+				return 0;
+			}
+
+			Common_VerbosePrint ("getservers valided\n");
+			return 1;
+		}
+		else {
+			Common_VerbosePrint ("getservers NOT valided: invalid payload\n");
+		}
+	}
+	else {
+		Common_VerbosePrint ("getservers NOT valided: invalid header\n");
+	}
+	
+	return 0;
 }
 
 	
@@ -617,13 +690,28 @@ sub Master_Start {
 		$dpmasterCmdLine = DEFAULT_DPMASTER_PATH;
 	}
 
+	$dpmasterCmdLine .= " -p $dpmasterProperties{port}";
+	
 	if ($optDpmasterOutput) {
 		$dpmasterCmdLine .= " -v";
 	}
 	
-	my $additionalOptions = $dpmasterProperties{cmdlineoptions};
-	if (defined ($additionalOptions) and $additionalOptions ne "") {
-		$dpmasterCmdLine .= " " . $additionalOptions;
+	if (defined $dpmasterProperties{maxNbServers}) {
+		$dpmasterCmdLine .= " -n $dpmasterProperties{maxNbServers}";
+	}
+	
+	# "--hash-ports" and "-N" are mutually incompatible options
+	if (defined $dpmasterProperties{maxNbServersPerAddr}) {
+		$dpmasterCmdLine .= " -N $dpmasterProperties{maxNbServersPerAddr}";
+	}
+	else {
+		if ($dpmasterProperties{hashPorts}) {
+			$dpmasterCmdLine .= " --hash-ports";
+		}
+	}
+	
+	if ($dpmasterProperties{allowLoopback}) {
+		$dpmasterCmdLine .= " --allow-loopback";
 	}
 	
 	my $gamePolicyRef = $dpmasterProperties{gamePolicy};
@@ -631,6 +719,13 @@ sub Master_Start {
 		$dpmasterCmdLine .= " --game-policy $gamePolicyRef->{policy}";
 		foreach my $gamename (@{$gamePolicyRef->{gamenames}}) {
 			$dpmasterCmdLine .= " $gamename";
+		}
+	}
+	
+	my $extraOptionsRef = $dpmasterProperties{extraOptions};
+	if (defined $extraOptionsRef) {
+		foreach my $extraOption (@{$extraOptionsRef}) {
+			$dpmasterCmdLine .= " $extraOption";
 		}
 	}
 
@@ -796,6 +891,13 @@ sub Server_SendHeartbeat {
 	Common_VerbosePrint ("Sending heartbeat from server $serverRef->{id}\n");
 	my $heartbeat = "\xFF\xFF\xFF\xFFheartbeat $serverRef->{masterProtocol}\x0A";
 	send ($serverRef->{socket}, $heartbeat, 0) or die "Can't send packet: $!";
+	
+	if (not $serverRef->{cannotBeAnswered}) {
+		$serverRef->{cannotBeAnswered} = not $dpmasterProperties{allowLoopback};
+		if ($serverRef->{cannotBeAnswered}) {
+			Common_VerbosePrint ("server cannot be answered: no servers allowed on loopback interfaces\n");
+		}
+	}
 }
 
 	
@@ -885,7 +987,7 @@ sub Server_Stop {
 sub Server_ValidateInfoResponse {
 	my $infoReponse = shift;
 	
-	if ($infoReponse =~ /\xFF\xFF\xFF\xFFinfoResponse\x0A\\(.*)/) {
+	if ($infoReponse =~ /^\xFF\xFF\xFF\xFFinfoResponse\x0A\\(.*)$/) {
 		my @infostringElts = split (/\\/, $1);
 		if (scalar @infostringElts % 2 == 0) {
 			my %infostringMap = @infostringElts;
@@ -999,6 +1101,7 @@ sub Test_StopAll {
 #***************************************************************************
 sub Test_Run {
 	my $testTitle = shift;
+	my $skipServerListCheck = shift;
 	
 	$testNumber++;
 	if (not defined ($testTitle)) {
@@ -1054,11 +1157,13 @@ sub Test_Run {
 	}
 
 	# Check that the server lists we got are valid
-	if ($Result == EXIT_SUCCESS) {
-		foreach my $client (@clientList) {
-			if (not Client_CheckServerList ($client)) {
-				$Result = EXIT_FAILURE;
-				last;
+	unless ($skipServerListCheck) {
+		if ($Result == EXIT_SUCCESS) {
+			foreach my $client (@clientList) {
+				if (not Client_CheckServerList ($client)) {
+					$Result = EXIT_FAILURE;
+					last;
+				}
 			}
 		}
 	}

@@ -182,21 +182,32 @@ in the infostring.
 
         - syntax:
 
-             The list of servers is composed of IPv4 addresses and ports. Each
-             server is stored on 4 bytes for the IP address and 2 bytes for the
-             port number, and a '\' to separate it from the next server. The
-             list ends with the 6-byte string "EOT\0\0\0'. All numbers are
-             big-endian oriented (most significant bytes first). For instance,
-             a server hosted at address 1.2.3.4 on port 2048 will be sent as:
-             "\x01\x02\x03\x04\x08\x00".
+            The list of servers is composed of IPv4 addresses and ports. Each
+            server is stored on 4 bytes for the IP address and 2 bytes for the
+            port number, and a '\' to separate it from the next server. All
+            numbers are big-endian oriented (most significant bytes first). For
+            instance, a server hosted at address 1.2.3.4 on port 2048 will be
+            sent as: "\x01\x02\x03\x04\x08\x00".
+            
+            If the list is too big to fit into one single network packet,
+            dpmaster will create as many getserversResponses as necessary to 
+            send all the matching servers. The last message contains a fake
+            server at the end of the list, which is the 6-byte string
+            "EOT\0\0\0", to tell the client that the master has finished to send
+            the server list (EOT stands for "End Of Transmission").
+
+            Prior to version 2.0, dpmaster ended all its getserversResponse
+            messages with an EOT mark, even when multiple messages were required
+            for a single response. Dpmaster 2.0 fixed this, allowing for smarter
+            handling of the reponse messages on the client side.
 
     6) getserversExt:
 
         - description:
 
-             A "getserversExt" message is sent to a master by a client who wants
-             to get a list of servers. It triggers a "getserversExtReponse"
-             message from the master.
+            A "getserversExt" message is sent to a master by a client who wants
+            to get a list of servers. It triggers a "getserversExtReponse"
+            message from the master.
 
         - sample:
 
@@ -235,10 +246,17 @@ in the infostring.
             address, 16 bytes for an IPv6 address, plus 2 bytes for the port
             number. To differentiate and separate those addresses, a '\'
             character precedes every IPv4 address, and a '/' character precedes
-            every IPv6 address. The list ends with a fake IPv4 address
-            "EOT\0\0\0". All numbers are big-endian oriented (most significant
-            bytes first). For instance, an IPv4 server hosted at address 1.2.3.4
-            on port 2048 will be sent as: "\x01\x02\x03\x04\x08\x00".
+            every IPv6 address. All numbers are big-endian oriented (most
+            significant bytes first). For instance, an IPv4 server hosted at
+            address 1.2.3.4 on port 2048 will be sent as:
+            "\x01\x02\x03\x04\x08\x00".
+            
+            If the list is too big to fit into one single network packet,
+            dpmaster will create as many getserversResponses as necessary to 
+            send all the matching servers. The last message contains a fake IPv4
+            address at the end of the list, which is the 6-byte string
+            "EOT\0\0\0", to tell the client that the master has finished to send
+            the server list (EOT stands for "End Of Transmission").
 
 
 3) BEHAVIOUR:

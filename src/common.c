@@ -91,8 +91,6 @@ Close the log file
 */
 static void CloseLogFile (const char* datestring)
 {
-	must_close_log = false;
-
 	if (log_file != NULL)
 	{
 		if (datestring == NULL)
@@ -206,6 +204,7 @@ qboolean Com_UpdateLogStatus (qboolean init)
 	// If we need to close the log file
 	if (must_close_log)
 	{
+		must_close_log = false;
 		CloseLogFile (NULL);
 	}
 
