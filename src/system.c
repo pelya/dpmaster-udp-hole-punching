@@ -35,8 +35,6 @@
 // User we use by default for dropping super-user privileges
 # define DEFAULT_LOW_PRIV_USER "nobody"
 
-# define INVALID_SOCKET (-1)
-
 #endif
 
 
@@ -165,7 +163,7 @@ static qboolean Sys_BuildSockaddr (const char* addr_name, const char* port_name,
 {
 	char port_buff [8];
 	struct addrinfo hints;
-	struct addrinfo* addrinf;
+	struct addrinfo* addrinf = NULL;
 	int err;
 
 	// If there is no port, use the default one
@@ -186,11 +184,14 @@ static qboolean Sys_BuildSockaddr (const char* addr_name, const char* port_name,
 	{
 		Com_Printf (MSG_ERROR, "> ERROR: can't resolve %s:%s (%s)\n",
 					addr_name, port_name, gai_strerror (err));
+		
+		if (addrinf != NULL)
+			freeaddrinfo (addrinf);
 		return false;
 	}
 
 	assert(addrinf->ai_addrlen <= sizeof (*sock_address));
-	*sock_address_len = addrinf->ai_addrlen;
+	*sock_address_len = (socklen_t)addrinf->ai_addrlen;
 	memcpy (sock_address, addrinf->ai_addr, addrinf->ai_addrlen);
 	
 	freeaddrinfo (addrinf);
@@ -439,9 +440,15 @@ qboolean Sys_CreateListenSockets (void)
 		}
 
 		if (listen_sock->local_addr_name != NULL)
+		{
+			const char* addr_str;
+
+			addr_str = Sys_SockaddrToString(&listen_sock->local_addr,
+											listen_sock->local_addr_len);
 			Com_Printf (MSG_NORMAL, "> Listening on address %s (%s)\n",
 						listen_sock->local_addr_name,
-						Sys_SockaddrToString(&listen_sock->local_addr));
+						addr_str);
+		}
 		else
 			Com_Printf (MSG_NORMAL, "> Listening on all %s addresses\n",
 						addr_family == AF_INET6 ? "IPv6" : "IPv4");
@@ -620,7 +627,7 @@ Sys_SockaddrToString
 Returns a pointer to its static character buffer (do NOT free it!)
 ====================
 */
-const char* Sys_SockaddrToString (const struct sockaddr_storage* address)
+const char* Sys_SockaddrToString (const struct sockaddr_storage* address, socklen_t socklen)
 {
 	static char result [NI_MAXHOST + NI_MAXSERV];
 	char port_str [NI_MAXSERV];
@@ -633,7 +640,7 @@ const char* Sys_SockaddrToString (const struct sockaddr_storage* address)
 		res_len += 1;
 	}
 
-	err = getnameinfo((struct sockaddr*)address, sizeof(*address),
+	err = getnameinfo((struct sockaddr*)address, socklen,
 					  result + res_len, sizeof(result) - res_len,
 					  port_str, sizeof(port_str),
 					  NI_NUMERICHOST|NI_NUMERICSERV);

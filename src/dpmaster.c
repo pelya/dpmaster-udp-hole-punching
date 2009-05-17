@@ -32,7 +32,7 @@
 // ---------- Constants ---------- //
 
 // Version of dpmaster
-#define VERSION "2.0 RC3"
+#define VERSION "2.0 RC4"
 
 
 // ---------- Private variables ---------- //
@@ -473,7 +473,7 @@ static cmdline_status_t ParseCommandLine (int argc, const char* argv [])
 		if (crt_arg[0] == '-' && crt_arg[1] != '\0')
 		{
 			const char* first_param = NULL;
-			qboolean sys_option;
+			qboolean sys_option = false;
 
 			// If it's a long option
 			if (crt_arg[1] == '-')
@@ -599,7 +599,7 @@ static cmdline_status_t ParseCommandLine (int argc, const char* argv [])
 								{
 									free_opt_params = true;
 									opt_params[0] = first_param;
-									memcpy (&opt_params[1], argv[ind + 1], (nb_params - 1) * sizeof (const char*));
+									memcpy ((void*)&opt_params[1], argv[ind + 1], (nb_params - 1) * sizeof (const char*));
 								}
 								else
 									cmdline_status = CMDLINE_STATUS_NOT_ENOUGH_MEMORY;
@@ -621,7 +621,7 @@ static cmdline_status_t ParseCommandLine (int argc, const char* argv [])
 							ind = param_ind;
 
 						if (free_opt_params)
-							free (opt_params);
+							free ((void*)opt_params);
 					}
 					else
 						cmdline_status = CMDLINE_STATUS_TOO_MUCH_OPT_PARAMS;
@@ -835,18 +835,18 @@ int main (int argc, const char* argv [])
 	for (;;)
 	{
 		fd_set sock_set;
-		int max_sock;
+		socket_t max_sock;
 		size_t sock_ind;
 		int nb_sock_ready;
 
 		FD_ZERO(&sock_set);
-		max_sock = -1;
+		max_sock = INVALID_SOCKET;
 		for (sock_ind = 0; sock_ind < nb_sockets; sock_ind++)
 		{
-			int crt_sock = listen_sockets[sock_ind].socket;
+			socket_t crt_sock = listen_sockets[sock_ind].socket;
 
 			FD_SET(crt_sock, &sock_set);
-			if (max_sock < crt_sock)
+			if (max_sock == INVALID_SOCKET || max_sock < crt_sock)
 				max_sock = crt_sock;
 		}
 
@@ -856,7 +856,7 @@ int main (int argc, const char* argv [])
 		if (daemon_state < DAEMON_STATE_EFFECTIVE)
 			fflush (stdout);
 
-		nb_sock_ready = select (max_sock + 1, &sock_set, NULL, NULL, NULL);
+		nb_sock_ready = select ((int)(max_sock + 1), &sock_set, NULL, NULL, NULL);
 
 		// Update the current time
 		crt_time = time (NULL);
@@ -884,7 +884,7 @@ int main (int argc, const char* argv [])
 			socklen_t addrlen;
 			int nb_bytes;
 			char packet [MAX_PACKET_SIZE_IN + 1];  // "+ 1" because we append a '\0'
-			int crt_sock = listen_sockets[sock_ind].socket;
+			socket_t crt_sock = listen_sockets[sock_ind].socket;
 
 			if (! FD_ISSET (crt_sock, &sock_set))
 				continue;
@@ -906,7 +906,7 @@ int main (int argc, const char* argv [])
 			if (max_msg_level > MSG_NOPRINT &&
 				(Com_IsLogEnabled() || daemon_state < DAEMON_STATE_EFFECTIVE))
 			{
-				strncpy (peer_address, Sys_SockaddrToString(&address),
+				strncpy (peer_address, Sys_SockaddrToString(&address, addrlen),
 						 sizeof (peer_address));
 				peer_address[sizeof (peer_address) - 1] = '\0';
 			}

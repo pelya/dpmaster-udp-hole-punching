@@ -69,6 +69,7 @@ my @failureDiagnostic = ();
 # Command-line options
 my $optVerbose = 0;
 my $optDpmasterOutput = 0;
+my $optDpmasterPath = DEFAULT_DPMASTER_PATH;
 
 
 #***************************************************************************
@@ -109,6 +110,7 @@ INIT {
 	GetOptions (
 		"verbose" => \$optVerbose,
 		"dpmaster-output" => \$optDpmasterOutput,
+		"dpmaster-path=s" => \$optDpmasterPath,
 	);
 
 	# Install the signal handler
@@ -636,6 +638,11 @@ sub Master_IsGameAccepted {
 # Master_Run
 #***************************************************************************
 sub Master_Run {
+	# If we use a remote master, there's nothing to do
+	if ($dpmasterProperties{remoteAddress}) {
+		return;
+	}
+
 	# Print the master server output
 	while (<DPMASTER_PROCESS>) {
 		if ($optDpmasterOutput) {
@@ -682,15 +689,12 @@ sub Master_SetProperty {
 # Master_Start
 #***************************************************************************
 sub Master_Start {
-	my $dpmasterCmdLine;
-	if (scalar @ARGV > 0) {
-		$dpmasterCmdLine = $ARGV[0];
+	# If we use a remote master, there's nothing to do
+	if ($dpmasterProperties{remoteAddress}) {
+		return;
 	}
-	else {
-		$dpmasterCmdLine = DEFAULT_DPMASTER_PATH;
-	}
-
-	$dpmasterCmdLine .= " -p $dpmasterProperties{port}";
+	
+	my $dpmasterCmdLine = $optDpmasterPath . " -p $dpmasterProperties{port}";
 	
 	if ($optDpmasterOutput) {
 		$dpmasterCmdLine .= " -v";
@@ -748,6 +752,11 @@ sub Master_Start {
 # Master_Stop
 #***************************************************************************
 sub Master_Stop {
+	# If we use a remote master, there's nothing to do
+	if ($dpmasterProperties{remoteAddress}) {
+		return;
+	}
+
 	# Kill dpmaster if it's still running
 	if (defined ($dpmasterPid)) {
 		kill ("HUP", $dpmasterPid);
@@ -1125,12 +1134,15 @@ sub Test_Run {
 
 		Test_RunAll ();
 
-		# If the dpmaster process is dead
-		if (waitpid($dpmasterPid, WNOHANG) == $dpmasterPid) {
-			$exitValue = $? >> 8;
-			my $receivedSignal = $? & 127;
-			Common_VerbosePrint ("Dpmaster end status: $? (exit value = $exitValue, received signal = $receivedSignal)...\n");
-			last;
+		# Unless we use a remote master
+		unless ($dpmasterProperties{remoteAddress}) {
+			# If the dpmaster process is dead
+			if (waitpid($dpmasterPid, WNOHANG) == $dpmasterPid) {
+				$exitValue = $? >> 8;
+				my $receivedSignal = $? & 127;
+				Common_VerbosePrint ("Dpmaster end status: $? (exit value = $exitValue, received signal = $receivedSignal)...\n");
+				last;
+			}
 		}
 
 		# Sleep a bit to avoid wasting the CPU time
@@ -1139,21 +1151,24 @@ sub Test_Run {
 
 	my $Result = EXIT_SUCCESS;
 
-	# If the dpmaster process is in the expected state
-	my $expectedExitValue = $dpmasterProperties{exitvalue};
-	if ((defined ($expectedExitValue) != defined ($exitValue)) or
-		(defined ($expectedExitValue) and defined ($exitValue) and $expectedExitValue != $exitValue)) {
-		$Result = EXIT_FAILURE;
+	# Unless we use a remote master
+	unless ($dpmasterProperties{remoteAddress}) {
+		# If the dpmaster process is in the expected state
+		my $expectedExitValue = $dpmasterProperties{exitvalue};
+		if ((defined ($expectedExitValue) != defined ($exitValue)) or
+			(defined ($expectedExitValue) and defined ($exitValue) and $expectedExitValue != $exitValue)) {
+			$Result = EXIT_FAILURE;
 		
-		my $state;
-		if (defined ($exitValue)) {
-			$state = "dead";
+			my $state;
+			if (defined ($exitValue)) {
+				$state = "dead";
+			}
+			else
+			{
+				$state = "running";
+			}
+			push @failureDiagnostic, "The dpmaster process is in an unexpected state ($state)";
 		}
-		else
-		{
-			$state = "running";
-		}
-		push @failureDiagnostic, "The dpmaster process is in an unexpected state ($state)";
 	}
 
 	# Check that the server lists we got are valid
@@ -1189,4 +1204,3 @@ sub Test_Run {
 
 
 return 1;
-

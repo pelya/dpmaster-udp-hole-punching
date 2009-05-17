@@ -14,4 +14,3 @@ Test_Run ("Getservers request without a protocol number");
 Server_SetGameProperty ($serverRef, "protocol", 4);
 Client_SetGameProperty ($clientRef, "protocol", "4TheFun");
 Test_Run ("Getservers request with an invalid protocol number");
-

@@ -99,13 +99,11 @@ static unsigned int Sv_AddressHash (const struct sockaddr_storage* address)
 	else
 	{
 		const struct sockaddr_in* addr4;
-		const unsigned int* ipv4_ptr;
 
 		assert(address->ss_family == AF_INET);
 
 		addr4 = (const struct sockaddr_in*)address;
-		ipv4_ptr = (const unsigned int*)&addr4->sin_addr.s_addr;
-		hash = ipv4_ptr[0];
+		hash = addr4->sin_addr.s_addr;
 		
 		if (hash_ports)
 			hash ^= addr4->sin_port;
@@ -176,7 +174,9 @@ static void Sv_Remove (server_t* sv)
 	sv->state = sv_state_unused_slot;
 
 	// Update first_free_slot if necessary
-	sv_ind = sv - servers;
+	sv_ind = (int)(sv - servers);
+	assert (sv_ind >= 0);
+	assert (sv_ind <= last_used_slot);
 	if (first_free_slot == -1 || sv_ind < first_free_slot)
 		first_free_slot = sv_ind;
 
@@ -198,7 +198,7 @@ static void Sv_Remove (server_t* sv)
 	nb_servers--;
 	Com_Printf (MSG_NORMAL,
 				"> %s timed out; %u server(s) currently registered\n",
-				Sys_SockaddrToString(&sv->address), nb_servers);
+				Sys_SockaddrToString(&sv->address, sv->addrlen), nb_servers);
 
 	assert (last_used_slot >= (int)nb_servers - 1);
 }
@@ -244,6 +244,8 @@ Test if the server has timed out and remove it if it's the case.
 static qboolean Sv_IsActive (unsigned int sv_ind)
 {
 	server_t* sv = &servers[sv_ind];
+	
+	assert (sv_ind < max_nb_servers);
 
 	// If the entry isn't even used
 	if (sv->state == sv_state_unused_slot)
@@ -363,8 +365,9 @@ static server_t* Sv_GetByAddr_Internal (const struct sockaddr_storage* address, 
 	while (sv != NULL)
 	{
 		server_t* next_sv = sv->next;
+		unsigned int sv_ind = (unsigned int)(sv - servers);
 
-		if (Sv_IsActive(sv - servers))
+		if (Sv_IsActive (sv_ind))
 		{
 			// Same address?
 			qboolean same_public_address;
@@ -929,7 +932,7 @@ void Sv_PrintServerList (msg_level_t msg_level)
 			const char* state_string;
 
 			Com_Printf (msg_level, " * %s",
-						Sys_SockaddrToString (&sv->address));
+						Sys_SockaddrToString (&sv->address, sv->addrlen));
 			if (sv->addrmap != NULL)
 				Com_Printf (msg_level, ", mapped to %s",
 							sv->addrmap->to_string);

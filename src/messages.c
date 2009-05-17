@@ -209,7 +209,7 @@ SendGetInfo
 Send a "getinfo" message to a server
 ====================
 */
-static void SendGetInfo (server_t* server, int recv_socket)
+static void SendGetInfo (server_t* server, socket_t recv_socket)
 {
 	char msg [64] = "\xFF\xFF\xFF\xFF" M2S_GETINFO " ";
 	size_t msglen;
@@ -244,7 +244,7 @@ HandleGetServers
 Parse getservers requests and send the appropriate response
 ====================
 */
-static void HandleGetServers (const char* msg, const struct sockaddr_storage* addr, socklen_t addrlen, int recv_socket, qboolean extended_request)
+static void HandleGetServers (const char* msg, const struct sockaddr_storage* addr, socklen_t addrlen, socket_t recv_socket, qboolean extended_request)
 {
 	const char* packetheader;
 	size_t headersize;
@@ -411,7 +411,7 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 		// Extra debugging info
 		if (max_msg_level >= MSG_DEBUG)
 		{
-			const char * addrstr = Sys_SockaddrToString (&sv->address);
+			const char * addrstr = Sys_SockaddrToString (&sv->address, sv->addrlen);
 			Com_Printf (MSG_DEBUG,
 						"  - Comparing server: IP:\"%s\", p:%d, g:\"%s\"\n",
 						addrstr, sv->protocol, sv->gamename);
@@ -460,7 +460,7 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 		if (packetind + next_sv_size > sizeof (packet))
 		{
 			// Send the packet to the client
-			if (sendto (recv_socket, packet, packetind, 0,
+			if (sendto (recv_socket, (void*)packet, packetind, 0,
 					(const struct sockaddr*)addr, addrlen) < 0)
 				Com_Printf (MSG_WARNING, "> WARNING: can't send %s (%s)\n",
 							request_name, Sys_GetLastNetErrorString ());
@@ -549,7 +549,7 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 	if (packetind + 7 > sizeof (packet))
 	{
 		// Send the packet to the client
-		if (sendto (recv_socket, packet, packetind, 0,
+		if (sendto (recv_socket, (void*)packet, packetind, 0,
 				(const struct sockaddr*)addr, addrlen) < 0)
 			Com_Printf (MSG_WARNING, "> WARNING: can't send %s (%s)\n",
 						request_name, Sys_GetLastNetErrorString ());
@@ -573,7 +573,7 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 	packetind += 7;
 
 	// Send the packet to the client
-	if (sendto (recv_socket, packet, packetind, 0,
+	if (sendto (recv_socket, (void*)packet, packetind, 0,
 			(const struct sockaddr*)addr, addrlen) < 0)
 		Com_Printf (MSG_WARNING, "> WARNING: can't send %s (%s)\n",
 					request_name, Sys_GetLastNetErrorString ());
@@ -726,7 +726,7 @@ Parse a packet to figure out what to do with it
 void HandleMessage (const char* msg, size_t length,
 					const struct sockaddr_storage* address,
 					socklen_t addrlen,
-					int recv_socket)
+					socket_t recv_socket)
 {
 	server_t* server;
 

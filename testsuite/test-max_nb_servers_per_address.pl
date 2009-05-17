@@ -27,4 +27,3 @@ Server_SetProperty ($server3Ref, "useIPv6", 1);
 Client_SetProperty ($clientRef, "useIPv6", 1);
 
 Test_Run ("Maximum number of servers per address (IPv6)");
-

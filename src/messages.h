@@ -31,7 +31,7 @@
 void HandleMessage (const char* msg, size_t length,
 					const struct sockaddr_storage* address,
 					socklen_t addrlen,
-					int recv_socket);
+					socket_t recv_socket);
 
 
 #endif  // #ifndef _MESSAGES_H_

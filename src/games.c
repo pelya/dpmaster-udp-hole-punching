@@ -117,11 +117,11 @@ cmdline_status_t Game_DeclarePolicy (const char* policy, const char** games, uns
 		{
 			const char** new_game_names;
 			
-			new_game_names = realloc (game_names, (nb_game_names + 1) * sizeof (game_names[0]));
+			new_game_names = realloc ((void*)game_names, (nb_game_names + 1) * sizeof (game_names[0]));
 			if (new_game_names == NULL)
 				return CMDLINE_STATUS_NOT_ENOUGH_MEMORY;
 			
-			memmove(&new_game_names[index + 1], &new_game_names[index], (nb_game_names - index) * sizeof (new_game_names[0]));
+			memmove((void*)&new_game_names[index + 1], &new_game_names[index], (nb_game_names - index) * sizeof (new_game_names[0]));
 			new_game_names[index] = game;
 
 			game_names = new_game_names;

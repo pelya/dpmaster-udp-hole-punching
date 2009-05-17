@@ -71,6 +71,11 @@
 #	define SETVBUF_DEFAULT_SIZE 4096
 #endif
 
+// Value used to specify an invalid socket
+#ifndef WIN32
+#	define INVALID_SOCKET (-1)
+#endif
+
 #ifndef MAX_PATH
 #	define MAX_PATH PATH_MAX
 #endif
@@ -79,7 +84,6 @@
 
 #ifdef WIN32
 typedef SOCKET socket_t;
-typedef int socklen_t;
 typedef u_short sa_family_t;
 #else
 typedef int socket_t;
@@ -154,7 +158,7 @@ qboolean Sys_SecurityInit (void);
 qboolean Sys_SecureInit (void);
 
 // Returns a pointer to its static character buffer (do NOT free it!)
-const char* Sys_SockaddrToString (const struct sockaddr_storage* address);
+const char* Sys_SockaddrToString (const struct sockaddr_storage* address, socklen_t socklen);
 
 // Get the network port from a sockaddr
 unsigned short Sys_GetSockaddrPort (const struct sockaddr_storage* address);

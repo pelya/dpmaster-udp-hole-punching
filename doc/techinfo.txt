@@ -9,31 +9,72 @@
 1) COMPILING DPMASTER
 2) PROTOCOL
 3) BEHAVIOUR
+4) THE TEST SUITE
 
 
 1) COMPILING DPMASTER:
 
-Dpmaster is being developed mostly on PC hardware, on Linux and Windows, using
-GCC and MS Visual Studio respectively. If you use one of these compilers, you
-should be able to compile dpmaster without any problem.
-Dpmaster is also occasionally compiled on BSD systems, and on Win32 systems
-using MinGW32 (GCC for Win32). It may not compile on these configurations, but
-if you're a C developer you should be able to solve the problem(s) easily.
+Dpmaster is known to compile successfully on GCC, MinGW (GCC for Windows), and
+Microsoft Visual Studio 8. You can also cross-compile it to Windows using MinGW.
 
-Although great care has been taken to avoid issues regarding CPU endianess and
-word size, dpmaster is rarely compiled and run on non-PC hardware. Please
-report us any problem on such a system.
+Here are the commands you will have to run, depending on your system.
 
-To compile dpmaster using GCC on a UNIX system, just type "make" or "make debug"
-to build a debug version. To clean the directory from the binary and temporary
-files, type "make clean". Note that MinGW32 requires a special syntax: the
-commands are respectively "make mingw", "make mingw-debug" and
-"make mingw-clean" in this case.
+    1) Building on a UNIX system (Linux, BSDs, and Mac OS X):
 
-For compiling with MSVC6, double-click on "dpmaster.dsw" to load the project,
-go to the "Build" menu, then "Set Active Configuration..." and select "dpmaster
-- Win32 Release". Hit 'F7' to build the project. You'll find the executable
-file in the "Release" subdirectory.
+        - For building release binaries:
+
+            make release
+
+        - For building debug binaries:
+
+            make debug
+
+        - For cleaning the files produced by a build:
+
+            make clean
+
+
+    2) Building on Windows using MinGW:
+
+        - For building release binaries:
+            
+            mingw32-make mingw-release
+
+        - For building debug binaries:
+            
+            mingw32-make mingw-debug
+
+        - For cleaning the files produced by a build:
+            
+            mingw32-make win-clean
+
+
+    3) Cross-compiling from UNIX to Windows using MinGW:
+
+        Here, you have to specify the compiler name by hand. In these examples,
+        my MinGW compiler is "i586-mingw32msvc-gcc".
+
+        - For building release binaries:
+            
+            make mingw-release CC=i586-mingw32msvc-gcc
+
+        - For building debug binaries:
+            
+            make mingw-debug CC=i586-mingw32msvc-gcc
+
+        - For cleaning the files produced by a build:
+            
+            make clean
+
+
+    4) Building on Windows using Microsoft Visual Studio:
+
+        No command line here. Open the project by double-clicking on
+        "dpmaster.sln". Choose the configuration you want, either "Debug" or
+        "Release". Then go to the "Build" menu and click on "Build solution".
+
+        You'll find the executable file in a newly created subdirectory, called
+        "Debug" or "Release", depending on the configuration you chose.
 
 
 2) PROTOCOL:
@@ -282,6 +323,28 @@ You may have noticed that this behaviour doesn't take into account the fact
 that some servers send 2 "heartbeat" messages when closing. I deliberately
 choose to keep the behaviour as simple and predictable as possible, hopefully
 making it free from any major abuse.
+
+
+4) THE TEST SUITE:
+
+The collection of Perl scripts that you can find in the "testsuite" directory,
+next to the source subdirectory, is used to do some basic tests on dpmaster,
+mostly to avoid regressions. All those simple scripts use a more complicated,
+common Perl module: "testlib.pm". This module can create fake game clients and
+servers, and make them exchange network messages with a running instance of
+dpmaster.
+
+This suite is an imperfect solution to a complicated problem: how to test a
+master server with a single computer, without starting by hand several servers
+and clients of various games. It's still a work in progress, but it has already
+proven extremely useful in guaranteeing a minimum stability and quality when
+modifying dpmaster's source code.
+
+The syntax of the test scripts themselves is pretty simple, so despite the fact
+that this suite isn't yet documented, you should be able to write your own tests
+easily if you need to.
+
+The testsuite requires the Socket6 perl module to run.
 
 
 --
