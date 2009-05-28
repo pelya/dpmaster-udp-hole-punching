@@ -36,10 +36,10 @@ dpmaster's source code has been used by a few projects as a base for creating
 their own master servers (this is the case of Tremulous, for instance).
 
 If you want to use the DP master protocol in one of your software, take a look
-at the "PROTOCOL" section in "doc/techinfo.txt" for further explanations. It is
-pretty easy to implement, and if you ask politely, chances are you will be able
-to find someone that will let you use his running dpmaster if you can't get your
-own.
+at the section "USING DPMASTER WITH YOUR GAME" in "doc/techinfo.txt" for further
+explanations. It is pretty easy to implement, and if you ask politely, chances
+are you will be able to find someone that will let you use his running dpmaster
+if you can't get your own.
 
 Although dpmaster is being primarily developed on a Linux PC, it is regularly
 compiled and tested on Windows XP, OpenBSD, and Mac OS X. It has also been run
@@ -323,7 +323,7 @@ indices in the Wikipedia article about IPv6 <http://en.wikipedia.org/wiki/IPv6>.
 
 10) VERSION HISTORY:
 
-    - version 2.0 RC4:
+    - version 2.0 RC5:
         Gametype filter support in the server list queries (see techinfo.txt)
         New option "--game-policy" to filter games (see GAME POLICY above)
         IPv6 support, including 2 new messages types (see techinfo.txt)
@@ -421,11 +421,11 @@ indices in the Wikipedia article about IPv6 <http://en.wikipedia.org/wiki/IPv6>.
 
 11) CONTACTS & LINKS:
 
-You can get more information and the latest versions of DarkPlaces and dpmaster
-on the DarkPlaces home page: http://icculus.org/twilight/darkplaces/
+You can get the latest versions of DarkPlaces and dpmaster on the DarkPlaces
+home page <http://icculus.org/twilight/darkplaces/>.
 
 If dpmaster doesn't fit your needs, please drop me an email (my name and email
-address are right below those lines). Your opinion and ideas may be very
+address are right below those lines): your opinion and ideas may be very
 valuable to me for evolving it to a better tool.
 
 

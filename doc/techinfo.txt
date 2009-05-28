@@ -7,9 +7,10 @@
 
 
 1) COMPILING DPMASTER
-2) PROTOCOL
-3) BEHAVIOUR
-4) THE TEST SUITE
+2) USING DPMASTER WITH YOUR GAME
+3) PROTOCOL
+4) BEHAVIOUR
+5) THE TEST SUITE
 
 
 1) COMPILING DPMASTER:
@@ -77,7 +78,68 @@ Here are the commands you will have to run, depending on your system.
         "Debug" or "Release", depending on the configuration you chose.
 
 
-2) PROTOCOL:
+2) USING DPMASTER WITH YOUR GAME:
+
+This section is a summary of what you have to do in your game code in order to
+use a running instance of dpmaster as a master server for your game. A more
+complete description of the protocol can be found in the next section.
+
+Let's say we have nearly finished coding a brand new real-time strategy game
+"BattleArt 3". The network code is working, but players have to manually enter
+IP addresses to play with their friends on the internet. Obviously, it needs a
+master server to keep track of the game sessions.
+
+On the server side (the side of the player who has created the session and is
+waiting for other players), you have to declare the game session. To do that,
+the server must send an "heartbeat" message to the master, which will reply by
+sending back a "getinfo" message containing a password (a "challenge"). The
+server will then send the master an "infoResponse" message, containing this very
+password plus a few pieces of information about its session: the maximum number
+of players it can accept, the number of players currently in the game, the
+number of the network protocol it uses, and of course the game name.
+
+So, an infoResponse for "BattleArt 3" could be, in a C-like syntax:
+
+    "\xFF\xFF\xFF\xFFinfoResponse\x0A\\gamename\\BattleArt3\\clients\\1"
+    "\\sv_maxclients\\4\\protocol\\5\\challenge\\the password"
+
+As you can see, this message declares a session for the game "BattleArt3" (no
+spaces are allowed in the game name, so I concatenated the name and the number).
+This session already has 1 player waiting, and can have 4 players at most. The
+network protocol it uses is version 5, so the players who will join must be able
+to handle this protocol version correctly.
+
+Note that we could also have specified a number for a "gametype" (i.e. a game
+mode, like "Battle to the Death" or "Resource Harvesting"). But for this simple
+example, let's say our RTS has only one game mode.
+
+This 3-step procedure "heartbeat" -> "getinfo" -> "infoResponse" should be
+repeated each time one of the values in the infoResponse message changes. In
+this example, it means when a player joins or leaves the session, as the other
+values shouldn't change once a particular session has been declared.
+
+We are now done with the server side, let's see the client side.
+
+It's easier here: the client simply sends to the master a "getserversExt"
+message containing the game name and the protocol number it uses, and optionally
+some filtering options. So for "BattleArt 3", we would have something like:
+
+    "\xFF\xFF\xFF\xFFgetserversExt BattleArt3 5"
+
+By default, dpmaster doesn't send empty or full servers. We are not interested
+by full servers anyway, and an empty server would actually mean that the session
+no longer exists. Since we have no "gametype" to specify either, there is no
+filtering options to append to this message.
+
+The master will reply by sending the client the IP addresses of all the servers
+matching these criteria (see the syntax of the "getserversExtResponse" message
+in the "PROTOCOL" section). The last thing the client has to do now is to
+contact the various servers individually, so it can retrieve the additional
+information the player needs in order to make its choice (like the map name, for
+instance).
+
+
+3) PROTOCOL:
 
 Dpmaster uses a protocol that is heavily inspired by Quake III Arena's master
 server protocol. The reference document for this protocol can be found on id
@@ -300,7 +362,7 @@ in the infostring.
             the server list (EOT stands for "End Of Transmission").
 
 
-3) BEHAVIOUR:
+4) BEHAVIOUR:
 
 The way dpmaster behaves when talking to clients and servers is largely based
 on one important idea: authenticated "infoResponse" messages are the only
@@ -325,7 +387,7 @@ choose to keep the behaviour as simple and predictable as possible, hopefully
 making it free from any major abuse.
 
 
-4) THE TEST SUITE:
+5) THE TEST SUITE:
 
 The collection of Perl scripts that you can find in the "testsuite" directory,
 next to the source subdirectory, is used to do some basic tests on dpmaster,
@@ -344,7 +406,7 @@ The syntax of the test scripts themselves is pretty simple, so despite the fact
 that this suite isn't yet documented, you should be able to write your own tests
 easily if you need to.
 
-The testsuite requires the Socket6 perl module to run.
+The test suite requires the Socket6 perl module to run.
 
 
 --
