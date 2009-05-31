@@ -32,7 +32,7 @@
 // ---------- Constants ---------- //
 
 // Version of dpmaster
-#define VERSION "2.0 RC5"
+#define VERSION "2.0"
 
 
 // ---------- Private variables ---------- //
@@ -252,7 +252,7 @@ static void PrintBanner (void)
 		Com_Printf (MSG_NORMAL,
 					"\n"
 					"dpmaster, an open master server\n"
-					"(version " VERSION ", compiled the " __DATE__ " at " __TIME__ ")\n");
+					"(version: " VERSION ", compiled: " __DATE__ " at " __TIME__ ")\n");
 
 		banner_printed = true;
 	}

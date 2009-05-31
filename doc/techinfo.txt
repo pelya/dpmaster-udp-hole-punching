@@ -93,7 +93,7 @@ On the server side (the side of the player who has created the session and is
 waiting for other players), you have to declare the game session. To do that,
 the server must send an "heartbeat" message to the master, which will reply by
 sending back a "getinfo" message containing a password (a "challenge"). The
-server will then send the master an "infoResponse" message, containing this very
+server will then send the master an "infoResponse" message, containing this
 password plus a few pieces of information about its session: the maximum number
 of players it can accept, the number of players currently in the game, the
 number of the network protocol it uses, and of course the game name.
@@ -106,7 +106,7 @@ So, an infoResponse for "BattleArt 3" could be, in a C-like syntax:
 As you can see, this message declares a session for the game "BattleArt3" (no
 spaces are allowed in the game name, so I concatenated the name and the number).
 This session already has 1 player waiting, and can have 4 players at most. The
-network protocol it uses is version 5, so the players who will join must be able
+network protocol it uses is version 5, so the clients who will join must be able
 to handle this protocol version correctly.
 
 Note that we could also have specified a number for a "gametype" (i.e. a game
@@ -135,8 +135,8 @@ The master will reply by sending the client the IP addresses of all the servers
 matching these criteria (see the syntax of the "getserversExtResponse" message
 in the "PROTOCOL" section). The last thing the client has to do now is to
 contact the various servers individually, so it can retrieve the additional
-information the player needs in order to make its choice (like the map name, for
-instance).
+information the player may need in order to make its choice (like the map name,
+for instance).
 
 
 3) PROTOCOL:

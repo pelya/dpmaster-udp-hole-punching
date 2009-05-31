@@ -134,7 +134,8 @@ sub Common_CreateSocket {
 	my $useIPv6 = shift;
 
 	my $proto = getprotobyname("udp");
-	my ($family, $localAddr, $addr, $dpmasterAddr, $loopbackAddr);
+
+	my ($family, $loopbackAddr);
 	if ($useIPv6) {
 		$family = AF_INET6;
 		$loopbackAddr = IPV6_LOOPBACK_ADDRESS;
@@ -159,15 +160,16 @@ sub Common_CreateSocket {
 	if (scalar @res < 5) {
 		die "Can't resolve address \"$connectAddr\" (port: $port)";
 	}
-	my ($sockType, $canonName);
-    ($family, $sockType, $proto, $dpmasterAddr, $canonName, @res) = @res;
-	
+	my ($sockType, $dpmasterAddr, $canonName);
+	($family, $sockType, $proto, $dpmasterAddr, $canonName, @res) = @res;
+
 	# Build the address for bind()
 	@res = getaddrinfo ($bindAddr, $port, $family, SOCK_DGRAM, $proto, AI_PASSIVE);
 	if (scalar @res < 5) {
 		die "Can't resolve address \"$bindAddr\" (port: $port)";
 	}
-    ($family, $sockType, $proto, $addr, $canonName, @res) = @res;
+	my $addr;
+	($family, $sockType, $proto, $addr, $canonName, @res) = @res;
 
 	# Open an UDP socket
 	my $socket;
@@ -385,6 +387,7 @@ sub Client_New {
 		cannotBeAnswered => 0,
 		useIPv6 => 0,
 		queryFilters => "empty full",
+		ignoreEOTMarks => 0,
 
 		gameProperties => {
 			gamename => $gamename,
@@ -423,8 +426,14 @@ sub Client_Run {
 				my $extended = ((defined $1) and ($1 eq "Ext"));
 				my $addrList = substr ($recvPacket, $extended ? 25 : 22);
 
-				if (Client_HandleGetServersReponse($clientRef, $addrList, $extended)) {
-					$clientRef->{state} = "Done";
+				my $eotFound = Client_HandleGetServersReponse($clientRef, $addrList, $extended);
+				if ($eotFound) {
+					if ($clientRef->{ignoreEOTMarks}) {
+						Common_VerbosePrint ("EOT mark ignored. Waiting for the next packet\n");
+					}
+					else {
+						$clientRef->{state} = "Done";
+					}
 				}
 				else {
 					Common_VerbosePrint ("No EOT mark found. Waiting for the next packet\n");
@@ -455,9 +464,7 @@ sub Client_Run {
 sub Client_SendGetServers {
 	my $clientRef = shift;
 
-	Common_VerbosePrint ("Sending getservers from client $clientRef->{id}\n");
-
-	my $getservers = "\xFF\xFF\xFF\xFFgetservers";
+	my $getservers = "getservers";
 
 	my $useExtendedQuery;
 	if ($clientRef->{useIPv6} or $clientRef->{alwaysUseExtendedQuery}) {
@@ -467,6 +474,11 @@ sub Client_SendGetServers {
 	else {
 		$useExtendedQuery = 0;
 	}
+
+	Common_VerbosePrint ("Sending $getservers from client $clientRef->{id}\n");
+	
+	# Add the message header
+	$getservers = "\xFF\xFF\xFF\xFF" . $getservers;
 
 	my $gameProp = $clientRef->{gameProperties};
 

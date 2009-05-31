@@ -3,10 +3,31 @@
 use strict;
 use testlib;
 
+# Libraries
+use Socket;
+use Socket6;
+
+
+#***************************************************************************
+# IsAddressIpv6
+#***************************************************************************
+sub IsAddressIpv6 {
+	my $address = shift;
+	
+	my @res = getaddrinfo ($address, 0);
+	if (scalar @res < 5) {
+		die "Can't resolve address \"$address\"";
+	}
+	my $family;
+	($family, @res) = @res;
+
+	return ($family == AF_INET6);
+}
+
 
 my %defaultProtocols = (
-	"Warsow" => 10,				# can also be 5307 or 5308 (Warsow 0.5t3 and 0.5t4?)
-	"Quake3Arena" => 71,		# can also be 68
+	"Warsow" => 10,				# can also be 5307 or 5308 (Warsow 0.5t3 and 0.5t4)
+	"Quake3Arena" => 68,		# can also be 71 (IOQuake3 1.36)
 	
 	# DarkPlaces
 	"DarkPlaces-Quake" => 3,
@@ -44,8 +65,20 @@ else {
 
 Master_SetProperty ("remoteAddress", $masterAddr);
 
-my $clientRef = Client_New ();
+my $gamefamily;
+if ($gamename eq "Quake3Arena") {
+	$gamefamily = GAME_FAMILY_QUAKE3ARENA;
+}
+else {
+	$gamefamily = GAME_FAMILY_DARKPLACES;
+}
+my $clientRef = Client_New ($gamefamily);
+Client_SetProperty ($clientRef, "ignoreEOTMarks", 1);
 Client_SetGameProperty ($clientRef, "gamename", $gamename);
 Client_SetGameProperty ($clientRef, "protocol", $protocol);
+
+if (IsAddressIpv6 ($masterAddr)) {
+	Client_SetProperty ($clientRef, "useIPv6", 1);
+}
 
 Test_Run ("Querying $masterAddr for $gamename servers (protocol: $protocol)...", 1);

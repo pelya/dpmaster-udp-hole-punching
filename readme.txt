@@ -323,7 +323,7 @@ indices in the Wikipedia article about IPv6 <http://en.wikipedia.org/wiki/IPv6>.
 
 10) VERSION HISTORY:
 
-    - version 2.0 RC5:
+    - version 2.0:
         Gametype filter support in the server list queries (see techinfo.txt)
         New option "--game-policy" to filter games (see GAME POLICY above)
         IPv6 support, including 2 new messages types (see techinfo.txt)
@@ -340,9 +340,9 @@ indices in the Wikipedia article about IPv6 <http://en.wikipedia.org/wiki/IPv6>.
         New option "--hash-ports", for debugging purposes only!
         Various updates and improvements in the documentation
         No warning is printed anymore if a server changes its game name
-        No longer tolerate several mapping declarations for the same address
-        A lot of minor changes and fixes 
-        The test suite now requires the Socket6 Perl module
+        No longer tolerates several mapping declarations for the same address
+        A lot of minor changes and fixes in the code
+        The test suite now requires the Socket6 Perl module to run
 
     - version 1.7:
         There's now a maximum number of servers per IP address (default: 32)
