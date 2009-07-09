@@ -44,6 +44,9 @@
 // Max number of characters for a gamename, including the '\0'
 #define GAMENAME_LENGTH 64
 
+// Max number of characters for a gametype, including the '\0'
+#define GAMETYPE_LENGTH 32
+
 
 // ---------- Types ---------- //
 
@@ -78,9 +81,9 @@ typedef struct server_s
 	time_t challenge_timeout;
 	socklen_t addrlen;
 	int protocol;
-	int gametype;
 	server_state_t state;
 	char challenge [CHALLENGE_MAX_LENGTH];
+	char gametype [GAMETYPE_LENGTH];
 	char gamename [GAMENAME_LENGTH];
 } server_t;
 

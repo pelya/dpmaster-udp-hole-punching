@@ -247,13 +247,13 @@ sub Client_CheckServerList {
 		my $svProtocol = $svPropertiesRef->{protocol};
 		my $svGametype = $svPropertiesRef->{gametype};
 		if (not defined $svGametype) {
-			$svGametype = 0;
+			$svGametype = "0";
 		}
 		
 		# Skip this server if it doesn't match the conditions
 		if (($svUseIPv6 != $clUseIPv6) or
 			(not defined ($clProtocol) or ($svProtocol ne $clProtocol)) or
-			(defined ($clGametype) and ($svGametype != $clGametype)) or
+			(defined ($clGametype) and ($svGametype ne $clGametype)) or
 			(defined ($svGamename) != defined ($clGamename)) or
 			(defined ($svGamename) and ($svGamename ne $clGamename))) {
 			next;
@@ -500,16 +500,16 @@ sub Client_SendGetServers {
 
 		# Q3A uses shortcuts for the gametype test
 		if ($clientRef->{family} == GAME_FAMILY_QUAKE3ARENA) {
-			if ($gametype == 0) {
+			if ($gametype == "0") {
 				$gametypeFilter = "ffa";
 			}
-			elsif ($gametype == 1) {
+			elsif ($gametype == "1") {
 				$gametypeFilter = "tourney";
 			}
-			elsif ($gametype == 3) {
+			elsif ($gametype == "3") {
 				$gametypeFilter = "team";
 			}
-			elsif ($gametype == 4) {
+			elsif ($gametype == "4") {
 				$gametypeFilter = "ctf";
 			}
 		}

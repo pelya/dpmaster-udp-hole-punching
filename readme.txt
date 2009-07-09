@@ -323,6 +323,9 @@ indices in the Wikipedia article about IPv6 <http://en.wikipedia.org/wiki/IPv6>.
 
 10) VERSION HISTORY:
 
+    - version 2.1-devel:
+        A gametype value can now be any string, not just a number
+
     - version 2.0:
         Gametype filter support in the server list queries (see techinfo.txt)
         New option "--game-policy" to filter games (see GAME POLICY above)

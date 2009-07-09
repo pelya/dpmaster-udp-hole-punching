@@ -32,7 +32,7 @@
 // ---------- Constants ---------- //
 
 // Version of dpmaster
-#define VERSION "2.0"
+#define VERSION "2.1-devel"
 
 
 // ---------- Private variables ---------- //

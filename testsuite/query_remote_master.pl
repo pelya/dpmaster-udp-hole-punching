@@ -26,8 +26,8 @@ sub IsAddressIpv6 {
 
 
 my %defaultProtocols = (
-	"Warsow" => 10,				# can also be 5307 or 5308 (Warsow 0.5t3 and 0.5t4)
-	"Quake3Arena" => 68,		# can also be 71 (IOQuake3 1.36)
+	"Warsow" => 10,				# can also be 11 (Warsow 0.5)
+	"Quake3Arena" => 68,		# can also be 71 (OpenArena 0.8.1)
 	
 	# DarkPlaces
 	"DarkPlaces-Quake" => 3,

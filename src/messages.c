@@ -84,7 +84,7 @@ SearchInfostring
 Search an infostring for the value of a key
 ====================
 */
-static char* SearchInfostring (const char* infostring, const char* key)
+static const char* SearchInfostring (const char* infostring, const char* key)
 {
 	static char str_buffer [256];
 	size_t buffer_ind;
@@ -255,7 +255,7 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 	size_t packetind;
 	server_t* sv;
 	int protocol;
-	int gametype = 0;
+	char gametype [GAMETYPE_LENGTH] = "0";
 	qboolean use_dp_protocol;
 	qboolean opt_empty = false;
 	qboolean opt_full = false;
@@ -348,31 +348,35 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 			opt_full = true;
 		else if (strcmp (option_ptr, "ffa") == 0)
 		{
-			gametype = 0;
+			gametype[0] = '0';
+			gametype[1] = '\0';
 			opt_gametype = true;
 		}
 		else if (strcmp (option_ptr, "tourney") == 0)
 		{
-			gametype = 1;
+			gametype[0] = '1';
+			gametype[1] = '\0';
 			opt_gametype = true;
 		}
 		else if (strcmp (option_ptr, "team") == 0)
 		{
-			gametype = 3;
+			gametype[0] = '3';
+			gametype[1] = '\0';
 			opt_gametype = true;
 		}
 		else if (strcmp (option_ptr, "ctf") == 0)
 		{
-			gametype = 4;
+			gametype[0] = '4';
+			gametype[1] = '\0';
 			opt_gametype = true;
 		}
 		else if (strncmp (option_ptr, "gametype=", 9) == 0)
 		{
 			const char* gametype_string = option_ptr + 9;
 
-			gametype = (int)strtol (gametype_string, &end_ptr, 0);
-			if (end_ptr != gametype_string && *end_ptr == '\0')
-				opt_gametype = true;
+			strncpy(gametype, gametype_string, sizeof(gametype) - 1);
+			gametype[sizeof(gametype) - 1] = '\0';
+			opt_gametype = true;
 		}
 		else if (extended_request)
 		{
@@ -423,10 +427,6 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 				Com_Printf (MSG_DEBUG,
 							"    Reject: protocol %d != requested %d\n",
 							sv->protocol, protocol);
-			if (opt_gametype && sv->gametype != gametype)
-				Com_Printf (MSG_DEBUG,
-							"    Reject: gametype %d != requested %d\n",
-							sv->gametype, gametype);
 			if (! opt_empty && sv->state == sv_state_empty)
 				Com_Printf (MSG_DEBUG, "    Reject: no empty server allowed\n");
 			if (! opt_full && sv->state == sv_state_full)
@@ -435,6 +435,10 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 				Com_Printf (MSG_DEBUG, "    Reject: no IPv4 servers allowed\n");
 			if (! opt_ipv6 && sv->address.ss_family == AF_INET6)
 				Com_Printf (MSG_DEBUG, "    Reject: no IPv6 servers allowed\n");
+			if (opt_gametype && strcmp (gametype, sv->gametype) != 0)
+				Com_Printf (MSG_DEBUG,
+							"    Reject: gametype \"%s\" != requested \"%s\"\n",
+							sv->gametype, gametype);
 			if (strcmp (gamename, sv->gamename) != 0)
 				Com_Printf (MSG_DEBUG,
 							"    Reject: gamename \"%s\" != requested \"%s\"\n",
@@ -444,11 +448,11 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 		// Check protocols, options, and gamename
 		if (sv->state <= sv_state_uninitialized ||
 			sv->protocol != protocol ||
-			(opt_gametype && sv->gametype != gametype) ||
 			(! opt_empty && sv->state == sv_state_empty) ||
 			(! opt_full && sv->state == sv_state_full) ||
 			(! opt_ipv4 && sv->address.ss_family == AF_INET) ||
 			(! opt_ipv6 && sv->address.ss_family == AF_INET6) ||
+			(opt_gametype && strcmp (gametype, sv->gametype) != 0) ||
 			strcmp (gamename, sv->gamename) != 0)
 		{
 			// Skip it
@@ -592,9 +596,9 @@ Parse infoResponse messages
 */
 static void HandleInfoResponse (server_t* server, const char* msg)
 {
-	char* value;
+	const char* value;
 	int new_protocol;
-	int new_gametype;
+	char new_gametype [GAMETYPE_LENGTH];
 	char* end_ptr;
 	unsigned int new_maxclients, new_clients;
 
@@ -636,18 +640,21 @@ static void HandleInfoResponse (server_t* server, const char* msg)
  	value = SearchInfostring (msg, "gametype");
 	if (value != NULL)
 	{
-		new_gametype = (int)strtol (value, &end_ptr, 0);
-		if (end_ptr == value || *end_ptr != '\0')
+		if (strchr (value, ' ') != NULL)
 		{
 			Com_Printf (MSG_WARNING,
-						"> WARNING: invalid infoResponse from %s (invalid gametype value: %s)\n",
-						peer_address, value);
+						"> WARNING: invalid infoResponse from %s (game type contains whitespaces)\n",
+						peer_address);
 			return;
 		}
 	}
-	// Default to gametype = 0 if the server hasn't sent this information
+	// Default to gametype = "0" if the server hasn't sent this information
 	else
-		new_gametype = 0;
+		value = "0";
+
+	strncpy (new_gametype, value, sizeof (new_gametype) - 1);
+	new_gametype[sizeof (new_gametype) - 1] = '\0';
+
 
 	// Check the value of "maxclients"
 	value = SearchInfostring (msg, "sv_maxclients");
@@ -701,7 +708,7 @@ static void HandleInfoResponse (server_t* server, const char* msg)
 	// Save some useful informations in the server entry
 	strncpy (server->gamename, value, sizeof (server->gamename) - 1);
 	server->protocol = new_protocol;
-	server->gametype = new_gametype;
+	strncpy (server->gametype, new_gametype, sizeof (server->gametype) - 1);
 	if (new_clients == 0)
 		server->state = sv_state_empty;
 	else if (new_clients == new_maxclients)

@@ -241,7 +241,9 @@ in the infostring.
             "gametype" key, which may be specified as a filter in server list
             queries (see the "getservers" message description below for more
             details). If no "gametype" key is present in the response message,
-            this number defaults to 0.
+            this value defaults to "0". In version 2.0, a gametype value had to
+            be a number, but starting from version 2.1 it can be any string, as
+            long as it does not contain whitespace characters.
 
     4) getservers:
 
@@ -266,7 +268,7 @@ in the infostring.
 
             Starting from dpmaster version 2.0, you may also add in the option
             list at most one gametype filter "gametype=X", where X is the
-            gametype number a server must have declared to be part of the 
+            gametype string a server must have declared to be part of the
             returned server list. 4 other keywords are allowed as shortcuts to
             this filter, for compatibility with Q3A: "ffa", "tourney", "team"
             and "ctf" are equivalent to "gametype=0", "gametype=1", "gametype=3"

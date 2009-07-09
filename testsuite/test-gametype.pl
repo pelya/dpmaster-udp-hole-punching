@@ -27,6 +27,28 @@ my @serverPropertiesList = (
 		gametype => 3,
 	},
 
+	# Warsow servers
+	{
+		family => GAME_FAMILY_DARKPLACES,
+		id => "WSServer0",
+		gametype => undef,
+	},
+	{
+		family => GAME_FAMILY_DARKPLACES,
+		id => "WSServer1",
+		gametype => "ca",
+	},
+	{
+		family => GAME_FAMILY_DARKPLACES,
+		id => "WSServer2",
+		gametype => "tdm",
+	},
+	{
+		family => GAME_FAMILY_DARKPLACES,
+		id => "WSServer3",
+		gametype => "classicduel",
+	},
+
 	# Q3A servers
 	{
 		family => GAME_FAMILY_QUAKE3ARENA,
