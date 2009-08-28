@@ -47,7 +47,7 @@ successfully on FreeBSD, NetBSD and Windows 2000 in the past, but having no
 regular access to any of those systems, I cannot guarantee that it is still the
 case. In particular, building dpmaster on Windows 2000 may require some minor
 source code changes due to the recent addition of IPv6 support in dpmaster,
-Windows 2000 having a limited support for this very protocol.
+Windows 2000 having a limited support for this protocol.
 
 Take a look at the "COMPILING DPMASTER" section in "doc/techinfo.txt" for more
 practical information on how to build it.
@@ -176,15 +176,14 @@ receives the USR2 signal, it closes its log file.
 
 Note that dpmaster will never overwrite an existing log file, it always appends
 logs to it. It prevents you from losing a potentially important log by mistake,
-with the drawback of having to clean the logs from time to time.
+with the drawback of having to clean the logs manually from time to time.
 
 There are a couple of pitfalls you should be aware of when using a log file:
 first, if you run dpmaster as a daemon, remember that its working directory is
-the root directory, so be careful with absolute paths. And second, if you put
-your dpmaster into a chroot jail, don't forget when starting or restarting the
-log that its path will then be relative to the jail root directory. Watch out
-for the log directory not being created or having wrong permissions in this
-case.
+the root directory, so be careful with relative paths. And second, if you put
+your dpmaster into a chroot jail, and start or restart the log after the
+initialization phase, its path will then be rooted and relative to the jail root
+directory.
 
 
 7) GAME POLICY:
@@ -323,7 +322,7 @@ indices in the Wikipedia article about IPv6 <http://en.wikipedia.org/wiki/IPv6>.
 
 10) VERSION HISTORY:
 
-    - version 2.1-devel:
+    - version 2.1:
         A gametype value can now be any string, not just a number
 
     - version 2.0:
