@@ -13,10 +13,11 @@
  5) OUTPUT AND VERBOSITY LEVELS
  6) LOGGING
  7) GAME POLICY
- 8) ADDRESS MAPPING
- 9) LISTENING INTERFACES
-10) VERSION HISTORY
-11) CONTACTS & LINKS
+ 8) GAME PROPERTIES
+ 9) ADDRESS MAPPING
+10) LISTENING INTERFACES
+11) VERSION HISTORY
+12) CONTACTS & LINKS
 
 
 1) INTRODUCTION:
@@ -25,8 +26,9 @@ Dpmaster is a lightweight master server written from scratch for LordHavoc's
 game engine DarkPlaces. It is an open master server because of its free source
 code and documentation, and because its Quake III Arena-like protocol allows it
 to fully support new games without having to restart or reconfigure it: start
-and forget. In addition to its own protocol, dpmaster also supports the original
-Quake III Arena master protocol.
+and forget. In addition to its own protocol, dpmaster also supports the master
+protocols of "Quake III Arena" (Q3A), "Return to Castle Wolfenstein" (RtCW), and
+"Wolfenstein: Enemy Territory" (WoET).
 
 Several game engines currently support the DP master server protocol: DarkPlaces
 and all its derived games (such as Nexuiz and Transfusion), QFusion and most of
@@ -223,7 +225,113 @@ will make dpmaster accept messages only when they will be related to a game
 called "-v" (certainly not what you want...).
 
 
-8) ADDRESS MAPPING:
+8) GAME PROPERTIES:
+
+Dpmaster supports 2 kinds of games: open-source games which use the DarkPlaces
+master protocol, and a few formerly closed-source games which use the Quake 3
+master protocol or a variant of it. The DarkPlaces master protocol itself is a
+variant of the Quake 3 master protocol, the main difference being that games
+send their name in addition to the usual informations or queries. That's what
+makes dpmaster able to support multiple games easily.
+
+Unfortunately, formerly closed-source games don't always send this information,
+or another information that allows dpmaster to guess the game name safely.
+That's why we call them "anonymous games" here. Up to version 2.1, the only
+anonymous game dpmaster supported was Q3A, so it was easy: if the game didn't
+send its name, it was Q3A. But starting from version 2.2, dpmaster also supports
+2 other anonymous games: RtCW and WoET. That's why a new mechanism had to be
+created to allow dpmaster to figure out which game sends it which message. This
+mechanism is called "game properties".
+
+Game properties are controlled by the command line option "--game-properties"
+(short option: "-g"). A number of properties are built into dpmaster, so you
+shouldn't have to configure anything for a standard usage. You can make it print
+its current list of game properties by using the command line option without any
+parameter. Here's the current output you get at the time I write those lines:
+
+        Game properties:
+        * et:
+           - protocols: 72, 80, 83, 84
+           - options: send-empty-servers, send-full-servers
+           - heartbeats: EnemyTerritory-1 (alive), ETFlatline-1 (dead)
+
+        * wolfmp:
+           - protocols: 50, 59, 60
+           - options: none
+           - heartbeats: Wolfenstein-1 (alive), WolfFlatline-1 (dead)
+
+        * Quake3Arena:
+           - protocols: 66, 67, 68
+           - options: none
+           - heartbeats: QuakeArena-1 (alive)
+
+"et", "wolfmp" and "Quake3Arena" are the respective game names for WoET, RtCW
+and Q3A. Each of them have been assigned several protocol numbers, options, and
+up to 2 heartbeat tags (one for alive servers, one for dying servers). All these
+values are optional: a game name can have no protocol, no option and no tag
+associated to it, although there would be no point to that.
+
+Normal (alive) heartbeat tags are used to figure out the game name when servers
+don't send it, like those of Q3A and some old Wolfenstein versions. Dead
+heartbeat tags are simply ignored, they don't trigger the sending of a "getinfo"
+message, unlike normal heartbeats.
+
+Protocol numbers are used to figure out the game name when clients don't send it
+with their "getservers" requests, and unfortunately this is the case for all the
+anonymous games currently supported. If the protocol declared by the client
+doesn't match any of the registered protocol numbers, dpmaster will use the
+first server of an anonymous game it will find, that uses this very protocol
+number, as the reference for the name. In other words, it will handle the query
+as if it has declared the same game name as this server.
+
+Options allows you to specify non-standard behaviours for a game. For example,
+the WoET's clients expect the master server to send them the complete list of
+servers, even though they don't specify that they want empty and full servers,
+like other Q3A-derived games do. By associating the proper options to its game
+name ("et"), we make sure that dpmaster will send the expected list anyway.
+The available options are: "send-empty-servers" and "send-full-servers".
+
+In order to modify the properties of a game, you have to use the command line
+option, with the game name as the first parameter, and then the modifications
+you want. You can either assign new values to a property (using "="), add values
+to it (using "+="), or remove values from it (using "-="). The values in the
+list must be separated by commas. No spaces are allowed, neither in the game
+name, nor in the list of modifications. The available properties are:
+"protocols", "options", "heartbeat" (normal heartbeat), and "flatline" (dying
+heartbeat).
+
+And you can have multiple game property changes in your command line, obviously.
+Here are a few examples.
+
+To add protocol 70 and a dead heartbeat to Q3A:
+
+        dpmaster -g Quake3Arena protocols+=70 flatline=Q3ADeadHB
+
+To remove all protocols from RtCW and give it 2 brand new ones, 4321 and 1234:
+
+        dpmaster -g wolfmp protocols=4321,1234
+
+To not send full servers to WoET clients, and to remove protocol 50 from RtCW:
+
+        dpmaster -g et options-=send-full-servers -g wolfmp protocols-=50
+
+The game properties has been added to dpmaster in order to support anonymous
+games, but it can also be useful for other games. For instance, you can force
+dpmaster to send empty servers to Warsow clients like this:
+
+        dpmaster -g Warsow options=send-empty-servers
+
+You could also specify a list of protocol numbers here, but since Warsow uses
+the DarkPlaces master protocol, both its clients and servers declares their game
+names, so it would be useless.
+
+Note that you can ask for the list of properties after you have declared some
+modifications, using a final "-g" on the command line. In this case, the printed
+list will contain your modifications. It's a good way to check that you didn't
+make any mistake before actually running your master server.
+
+
+9) ADDRESS MAPPING:
 
 Address mapping allows you to tell dpmaster to transmit an IPv4 address instead
 of another one to the clients, in the "getserversResponse" messages. It can be
@@ -283,7 +391,7 @@ from a loopback address (the other way being a command line option used for
 test purposes - do NOT run your master with this option!).
 
 
-9) LISTENING INTERFACES:
+10) LISTENING INTERFACES:
 
 By default, dpmaster creates one IPv4 socket and one IPv6 socket (if IPv6
 support is available of course). It will listen on every network interface, on
@@ -320,7 +428,14 @@ IPv6 address, I recommend that you take a look at the paragraph regarding zone
 indices in the Wikipedia article about IPv6 <http://en.wikipedia.org/wiki/IPv6>.
 
 
-10) VERSION HISTORY:
+11) VERSION HISTORY:
+
+    - version 2.2-dev:
+        New system for managing game properties (see GAME PROPERTIES above)
+        Support for RtCW and WoET, using the game properties
+        Shutdown heartbeats and unknown heartbeats are now ignored
+        The chroot jail was preventing daemonization (fixed thanks to LordHavoc)
+        The game type was incorrect when printing the server list in the log
 
     - version 2.1:
         A gametype value can now be any string, not just a number
@@ -421,7 +536,7 @@ indices in the Wikipedia article about IPv6 <http://en.wikipedia.org/wiki/IPv6>.
         First publicly available version
 
 
-11) CONTACTS & LINKS:
+12) CONTACTS & LINKS:
 
 You can get the latest versions of DarkPlaces and dpmaster on the DarkPlaces
 home page <http://icculus.org/twilight/darkplaces/>.

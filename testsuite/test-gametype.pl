@@ -98,4 +98,4 @@ foreach my $propertiesRef (@serverPropertiesList) {
 	}
 }
 
-Test_Run ("Servers running games from different game families");
+Test_Run ("Servers running games using different gametypes and families");

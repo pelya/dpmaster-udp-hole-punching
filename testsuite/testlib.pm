@@ -23,6 +23,10 @@ use constant DEFAULT_GAMENAME => "DpmasterTest";
 use constant DEFAULT_PROTOCOL => 5;
 use constant QUAKE3ARENA_GAMENAME => "Quake3Arena";
 use constant QUAKE3ARENA_PROTOCOL => 67;
+use constant RTCW_GAMENAME => "wolfmp";
+use constant RTCW_PROTOCOL => 60;
+use constant WOET_GAMENAME => "et";
+use constant WOET_PROTOCOL => 84;
 
 # Constants - misc
 use constant DEFAULT_SERVER_PORT => 5678;
@@ -30,6 +34,8 @@ use constant DEFAULT_CLIENT_PORT => 4321;
 use constant {
 	GAME_FAMILY_DARKPLACES => 0,
 	GAME_FAMILY_QUAKE3ARENA => 1,
+	GAME_FAMILY_RTCW => 2,
+	GAME_FAMILY_WOET => 3,
 };
 
 
@@ -98,6 +104,8 @@ BEGIN {
 
 		GAME_FAMILY_DARKPLACES
 		GAME_FAMILY_QUAKE3ARENA
+		GAME_FAMILY_RTCW
+		GAME_FAMILY_WOET
 	);
 }
 
@@ -365,10 +373,20 @@ sub Client_New {
 	$nextClientId++;
 
 	# Game family specific variables
-	my ($gamename, $protocol);
+	my ($gamename, $protocol, $queryFilters);
+	$queryFilters = "empty full";
 	if ($gameFamily == GAME_FAMILY_QUAKE3ARENA) {
 		$gamename = QUAKE3ARENA_GAMENAME;
 		$protocol = QUAKE3ARENA_PROTOCOL;
+	}
+	elsif ($gameFamily == GAME_FAMILY_RTCW) {
+		$gamename = RTCW_GAMENAME;
+		$protocol = RTCW_PROTOCOL;
+	}
+	elsif ($gameFamily == GAME_FAMILY_WOET) {
+		$gamename = WOET_GAMENAME;
+		$protocol = WOET_PROTOCOL;
+		$queryFilters = "";		# WoET never send "empty" and "full"
 	}
 	else {  # $gameFamily == GAME_FAMILY_DARKPLACES
 		$gamename = DEFAULT_GAMENAME;
@@ -386,7 +404,7 @@ sub Client_New {
 		alwaysUseExtendedQuery => 0,
 		cannotBeAnswered => 0,
 		useIPv6 => 0,
-		queryFilters => "empty full",
+		queryFilters => $queryFilters,
 		ignoreEOTMarks => 0,
 
 		gameProperties => {
@@ -482,7 +500,7 @@ sub Client_SendGetServers {
 
 	my $gameProp = $clientRef->{gameProperties};
 
-	if ($clientRef->{family} != GAME_FAMILY_QUAKE3ARENA or $useExtendedQuery) {
+	if ($clientRef->{family} == GAME_FAMILY_DARKPLACES or $useExtendedQuery) {
 		if (defined ($gameProp->{gamename})) {
 			$getservers .= " $gameProp->{gamename}";
 		}
@@ -816,6 +834,16 @@ sub Server_New {
 		$gamename = QUAKE3ARENA_GAMENAME;
 		$protocol = QUAKE3ARENA_PROTOCOL;
 		$masterProtocol = "QuakeArena-1";
+	}
+	elsif ($gameFamily == GAME_FAMILY_RTCW) {
+		$gamename = RTCW_GAMENAME;
+		$protocol = RTCW_PROTOCOL;
+		$masterProtocol = "Wolfenstein-1";
+	}
+	elsif ($gameFamily == GAME_FAMILY_WOET) {
+		$gamename = WOET_GAMENAME;
+		$protocol = WOET_PROTOCOL;
+		$masterProtocol = "EnemyTerritory-1";
 	}
 	else {  # $gameFamily == GAME_FAMILY_DARKPLACES
 		$gamename = DEFAULT_GAMENAME;

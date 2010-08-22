@@ -3,7 +3,7 @@
 
 	System specific code for dpmaster
 
-	Copyright (C) 2008-2009  Mathieu Olivier
+	Copyright (C) 2008-2010  Mathieu Olivier
 
 	This program is free software; you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -47,6 +47,9 @@ static const char* jail_path = DEFAULT_JAIL_PATH;
 
 // Low privileges user
 static const char* low_priv_user = DEFAULT_LOW_PRIV_USER;
+
+// File descriptor to /dev/null, used by the daemonization process
+static int null_device = -1;
 
 #endif
 
@@ -543,6 +546,17 @@ System dependent security initializations
 qboolean Sys_SecurityInit (void)
 {
 #ifndef WIN32
+	// If we will run as a daemon, we need to open /dev/null before chrooting
+	if (daemon_state == DAEMON_STATE_REQUEST)
+	{
+		null_device = open ("/dev/null", O_RDWR, 0);
+		if (null_device == -1)
+		{
+			Com_Printf (MSG_ERROR, "> ERROR: can't open /dev/null\n");
+			return false;
+		}
+	}
+
 	// UNIX allows us to be completely paranoid, so let's go for it
 	if (geteuid () == 0)
 	{
@@ -603,7 +617,7 @@ qboolean Sys_SecureInit (void)
 	// Should we run as a daemon?
 	if (daemon_state == DAEMON_STATE_REQUEST)
 	{
-		if (daemon (0, 0) != 0)
+		if (daemon (0, 1) != 0)
 		{
 			Com_Printf (MSG_ERROR, "> ERROR: daemonization failed (%s)\n",
 						strerror (errno));
@@ -611,7 +625,17 @@ qboolean Sys_SecureInit (void)
 			daemon_state = DAEMON_STATE_NO;
 			return false;
 		}
+
+		// Replace the standard input and outputs by /dev/null
+		assert (null_device != -1);
+		dup2 (null_device, STDIN_FILENO);
+		dup2 (null_device, STDOUT_FILENO);
+		dup2 (null_device, STDERR_FILENO);
 		
+		// We no longer need to keep this file descriptor open
+		close (null_device);
+		null_device = -1;
+
 		daemon_state = DAEMON_STATE_EFFECTIVE;
 	}
 #endif

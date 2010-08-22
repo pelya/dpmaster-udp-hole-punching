@@ -4,7 +4,7 @@
 
 	An open master server
 
-	Copyright (C) 2002-2009  Mathieu Olivier
+	Copyright (C) 2002-2010  Mathieu Olivier
 
 	This program is free software; you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -32,7 +32,7 @@
 // ---------- Constants ---------- //
 
 // Version of dpmaster
-#define VERSION "2.1"
+#define VERSION "2.2-dev"
 
 
 // ---------- Private variables ---------- //
@@ -51,12 +51,21 @@ static const cmdlineopt_t cmdline_options [] =
 		0
 	},
 	{
+		"game-properties",
+		"[game_name <property> ...]",
+		"Without parameter, print the list of all known games and their properties.\n"
+		"   Otherwise, update the properties of a game according to the other parameters.",
+		{ 0, 0 },
+		'g',
+		0,
+		UINT_MAX
+	},
+	{
 		"game-policy",
 		"<accept|reject> <game_name> ...",
 		"Accept or reject the listed games. Can be specified more than once only\n"
 		"   if all instances set the same policy (\"accept\" or \"reject\").\n"
-		"   All non-listed games will implicitely get the opposite policy."
-		,
+		"   All non-listed games will implicitely get the opposite policy.",
 		{ 0, 0 },
 		'\0',
 		2,
@@ -275,6 +284,17 @@ static cmdline_status_t Cmdline_Option (const cmdlineopt_t* opt, const char** pa
 	// Are servers on loopback interfaces allowed?
 	if (strcmp (opt_name, "allow-loopback") == 0)
 		allow_loopback = true;
+
+	// Game properties
+	else if (strcmp (opt_name, "game-properties") == 0)
+	{
+		if (nb_params == 0)
+			return CMDLINE_STATUS_SHOW_GAME_PROPERTIES;
+		else if (nb_params == 1)
+			return CMDLINE_STATUS_NOT_ENOUGH_OPT_PARAMS;
+		else
+			return Game_UpdateProperties (params[0], &params[1], nb_params - 1);
+	}
 
 	// Game policy
 	else if (strcmp (opt_name, "game-policy") == 0)
@@ -670,7 +690,8 @@ static cmdline_status_t ParseCommandLine (int argc, const char* argv [])
 				break;
 
 			default:
-				assert(cmdline_status == CMDLINE_STATUS_SHOW_HELP);
+				assert (cmdline_status == CMDLINE_STATUS_SHOW_HELP ||
+						cmdline_status == CMDLINE_STATUS_SHOW_GAME_PROPERTIES);
 				errormsg_part1 = NULL;
 				errormsg_part2 = NULL;
 				break;
@@ -805,6 +826,10 @@ int main (int argc, const char* argv [])
 {
 	cmdline_status_t valid_options;
 
+	// Game properties must be initialized first, since the user
+	// may modify them using the command line's arguments
+	Game_InitProperties ();
+
 	// Get the options from the command line
 	valid_options = ParseCommandLine (argc, argv);
 
@@ -813,8 +838,21 @@ int main (int argc, const char* argv [])
 	// If something goes wrong with the command line, exit
 	if (valid_options != CMDLINE_STATUS_OK)
 	{
-		if (valid_options == CMDLINE_STATUS_SHOW_HELP)
-			PrintHelp ();
+		switch (valid_options)
+		{
+			case CMDLINE_STATUS_SHOW_HELP:
+				PrintHelp ();
+				break;
+
+			case CMDLINE_STATUS_SHOW_GAME_PROPERTIES:
+				Game_PrintProperties ();
+				break;
+			
+			default:
+				// Nothing
+				break;
+		}
+
 		return EXIT_FAILURE;
 	}
 
@@ -941,7 +979,7 @@ int main (int argc, const char* argv [])
 							peer_address, nb_bytes);
 				continue;
 			}
-			if (*((unsigned int*)packet) != 0xFFFFFFFF)
+			if (packet[0] != '\xFF' || packet[1] != '\xFF' || packet[2] != '\xFF' || packet[3] != '\xFF')
 			{
 				Com_Printf (MSG_WARNING,
 							"> WARNING: rejected packet from %s (invalid header)\n",

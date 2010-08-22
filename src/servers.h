@@ -3,7 +3,7 @@
 
 	Server list and address mapping management for dpmaster
 
-	Copyright (C) 2004-2009  Mathieu Olivier
+	Copyright (C) 2004-2010  Mathieu Olivier
 
 	This program is free software; you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -71,12 +71,15 @@ typedef enum
 } server_state_t;
 
 // Server properties
+struct game_properties_s;		// Defined in games.h
 typedef struct server_s
 {
 	struct sockaddr_storage address;
 	struct server_s* next;
 	struct server_s** prev_ptr;
 	const struct addrmap_s* addrmap;
+	const struct game_properties_s* anon_properties;	// game properties, for an anonymous game
+	const struct game_properties_s* hb_properties;		// future "anon_properties", not yet validated by an infoResponse
 	time_t timeout;
 	time_t challenge_timeout;
 	socklen_t addrlen;

@@ -179,17 +179,18 @@ in the infostring.
 
         - samples:
 
-            "\xFF\xFF\xFF\xFFheartbeat QuakeArena-1\x0A" (Q3A protocol)
-            "\xFF\xFF\xFF\xFFheartbeat DarkPlaces\x0A"   (DP protocol)
+            "\xFF\xFF\xFF\xFFheartbeat DarkPlaces\x0A"       (DP protocol)
+            "\xFF\xFF\xFF\xFFheartbeat QuakeArena-1\x0A"     (Q3A)
+            "\xFF\xFF\xFF\xFFheartbeat Wolfenstein-1\x0A"    (RtCW)
+            "\xFF\xFF\xFF\xFFheartbeat EnemyTerritory-1\x0A" (WoET)
 
         - syntax:
 
             A protocol string is required after the type name, and a line feed
             (character 10, '\n') closes the message. Note that the string after
             the type name is a PROTOCOL STRING, not a game string! Please make
-            sure you use "DarkPlaces" as your protocol string. Dpmaster only
-            checks this string for debugging purpose for the moment, but it's
-            likely to change in the future. You're warned.
+            sure you use "DarkPlaces" as your protocol string if you use
+            dpmaster for your own game, or it won't work!
 
     2) getinfo:
 
@@ -234,8 +235,9 @@ in the infostring.
             "challenge"). "sv_maxclients" (the maximum number of clients
             allowed on the server; must not be 0), "protocol" (the protocol
             number) and "clients" (the current number of clients on the
-            server) must also be present. Except for Q3A, "gamename" (the game
-            name) is mandatory too, and its value must not contain whitespaces.
+            server) must also be present. Except for anonymous games like Q3A,
+            "gamename" (the game name) is mandatory too, and its value must not
+            contain whitespaces.
             
             Starting from version 2.0, dpmaster also uses the value of the
             "gametype" key, which may be specified as a filter in server list
@@ -256,15 +258,18 @@ in the infostring.
         - samples:
 
             "\xFF\xFF\xFF\xFFgetservers 67 ffa empty full" (Q3A)
+            "\xFF\xFF\xFF\xFFgetservers 84"                (WoET)
             "\xFF\xFF\xFF\xFFgetservers Nexuiz 3"          (DP running Nexuiz)
             "\xFF\xFF\xFF\xFFgetservers qfusion 39 full"   (QFusion)
 
         - syntax:
 
-            The message must contain a protocol version, and optionally "empty"
+            The message must contain a protocol number, and optionally "empty"
             and/or "full" depending on whether or not the client also wants to
-            get empty or full servers. Except for Q3A, the client has to specify
-            its game name, right before the protocol number.
+            get empty or full servers (except for WoET, which always expect a
+            list of all servers). A client using the DP protocol also has to
+            specify its game name, right before the protocol number. Anonymous
+            games such as Q3A or RtCW don't, obviously.
 
             Starting from dpmaster version 2.0, you may also add in the option
             list at most one gametype filter "gametype=X", where X is the

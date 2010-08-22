@@ -3,7 +3,7 @@
 
 	Common header file for dpmaster
 
-	Copyright (C) 2004-2009  Mathieu Olivier
+	Copyright (C) 2004-2010  Mathieu Olivier
 
 	This program is free software; you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -27,6 +27,7 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -77,6 +78,7 @@ typedef enum
 {
 	CMDLINE_STATUS_OK,
 	CMDLINE_STATUS_SHOW_HELP,
+	CMDLINE_STATUS_SHOW_GAME_PROPERTIES,
 
 	// Errors
 	CMDLINE_STATUS_INVALID_OPT,

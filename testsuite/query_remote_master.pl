@@ -26,8 +26,10 @@ sub IsAddressIpv6 {
 
 
 my %defaultProtocols = (
-	"Warsow" => 10,				# can also be 11 (Warsow 0.5)
-	"Quake3Arena" => 68,		# can also be 71 (OpenArena 0.8.1)
+	"Warsow" => 11,
+	"Quake3Arena" => 68,		# can also be 71 (OpenArena 0.8.1+)
+	"RtCW" => 60,
+	"WoET" => 84,
 	
 	# DarkPlaces
 	"DarkPlaces-Quake" => 3,
@@ -40,7 +42,10 @@ my $nbArgs = scalar @ARGV;
 if ($nbArgs < 1 or $nbArgs > 3) {
 	print "Syntax: $0 [options] <game> [protocol number] [master]\n";
 	print "    Ex: $0 Nexuiz\n";
-	print "        $0 Quake3Arena 68\n";
+	print "        $0 Quake3Arena\n";
+	print "        $0 RtCW\n";
+	print "        $0 WoET\n";
+	print "        $0 Warsow 10\n";
 	print "        $0 Warsow 5308 dpmaster.deathmask.net\n";
 	exit;
 }
@@ -68,6 +73,12 @@ Master_SetProperty ("remoteAddress", $masterAddr);
 my $gamefamily;
 if ($gamename eq "Quake3Arena") {
 	$gamefamily = GAME_FAMILY_QUAKE3ARENA;
+}
+elsif ($gamename eq "RtCW") {
+	$gamefamily = GAME_FAMILY_RTCW;
+}
+elsif ($gamename eq "WoET") {
+	$gamefamily = GAME_FAMILY_WOET;
 }
 else {
 	$gamefamily = GAME_FAMILY_DARKPLACES;

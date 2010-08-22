@@ -3,7 +3,7 @@
 
 	Message management for dpmaster
 
-	Copyright (C) 2004-2009  Mathieu Olivier
+	Copyright (C) 2004-2010  Mathieu Olivier
 
 	This program is free software; you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -36,9 +36,6 @@
 // Period of validity for a challenge string (in secondes)
 #define TIMEOUT_CHALLENGE 2
 
-// Gamename used for Q3A
-#define GAMENAME_Q3A "Quake3Arena"
-
 // Maximum size of a reponse packet
 #define MAX_PACKET_SIZE_OUT 1400
 
@@ -47,7 +44,7 @@
 
 // Q3: "heartbeat QuakeArena-1\x0A"
 // DP: "heartbeat DarkPlaces\x0A"
-#define S2M_HEARTBEAT "heartbeat"
+#define S2M_HEARTBEAT "heartbeat "
 
 // Q3 & DP & QFusion: "getinfo A_Challenge"
 #define M2S_GETINFO "getinfo"
@@ -209,12 +206,12 @@ SendGetInfo
 Send a "getinfo" message to a server
 ====================
 */
-static void SendGetInfo (server_t* server, socket_t recv_socket)
+static void SendGetInfo (server_t* server, socket_t recv_socket, qboolean force_new_challenge)
 {
 	char msg [64] = "\xFF\xFF\xFF\xFF" M2S_GETINFO " ";
 	size_t msglen;
 
-	if (!server->challenge_timeout || server->challenge_timeout < crt_time)
+	if (force_new_challenge || !server->challenge_timeout || server->challenge_timeout < crt_time)
 	{
 		const char* challenge;
 
@@ -239,6 +236,75 @@ static void SendGetInfo (server_t* server, socket_t recv_socket)
 
 /*
 ====================
+HandleHeartbeat
+
+Parse heartbeat requests
+====================
+*/
+static void HandleHeartbeat (const char* msg, const struct sockaddr_storage* addr, socklen_t addrlen, socket_t recv_socket)
+{
+	char tag [64];
+	const game_properties_t* game_props;
+	server_t* server;
+	qboolean flatlineHeartbeat;
+
+	// Extract the tag
+	sscanf (msg, "%63s", tag);
+	Com_Printf (MSG_NORMAL, "> %s ---> heartbeat (%s)\n",
+				peer_address, tag);
+
+	// If it's not a game that uses the DarkPlaces protocol
+	if (strcmp (tag, HEARTBEAT_DARKPLACES) != 0)
+	{
+		game_props = Game_GetPropertiesByHeartbeat (tag, &flatlineHeartbeat);
+		if (game_props == NULL)
+		{
+			Com_Printf (MSG_WARNING,
+						"> WARNING: Rejecting heartbeat from %s (heartbeat \"%s\" is unknown)\n",
+						peer_address, tag);
+			return;
+		}
+
+		Com_Printf (MSG_DEBUG, "  - belongs to game \"%s\"\n",
+					game_props->name);
+
+		// Ignore flatline (shutdown) heartbeats
+		if (flatlineHeartbeat)
+		{
+			Com_Printf (MSG_NORMAL, "  - flatline heartbeat (ignored)\n");
+			return;
+		}
+
+		// If the game isn't accepted on this server, ignore the heartbeat
+		if (! Game_IsAccepted (game_props->name))
+		{
+			Com_Printf (MSG_WARNING,
+						"> WARNING: Rejecting heartbeat from %s (game \"%s\" is not accepted)\n",
+						peer_address, game_props->name);
+			return;
+		}
+	}
+	else
+		game_props = NULL;
+
+	// Get the server in the list (add it to the list if necessary)
+	server = Sv_GetByAddr (addr, addrlen, true);
+	if (server == NULL)
+		return;
+
+	assert (server->state != sv_state_unused_slot);
+
+	// Ask for some infos.
+	// Force a new challenge if the heartbeat tag has changed
+	SendGetInfo (server, recv_socket, server->hb_properties != game_props);
+
+	// Save the game properties for a future use
+	server->hb_properties = game_props;
+}
+
+
+/*
+====================
 HandleGetServers
 
 Parse getservers requests and send the appropriate response
@@ -255,6 +321,7 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 	size_t packetind;
 	server_t* sv;
 	int protocol;
+	game_options_t game_options = GAME_OPTION_NONE;
 	char gametype [GAMETYPE_LENGTH] = "0";
 	qboolean use_dp_protocol;
 	qboolean opt_empty = false;
@@ -306,6 +373,8 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 		if (space)
 			*space = '\0';
 		msg_ptr = msg_ptr + strlen (gamename);
+		
+		game_options = Game_GetOptions (gamename);
 
 		// Read the protocol number
 		protocol = (int)strtol (msg_ptr, &end_ptr, 0);
@@ -317,24 +386,40 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 			return;
 		}
 	}
-	// Else, it comes from a Quake III Arena client
+	// Else, it comes from an anonymous client
 	else
 	{
-		strncpy (gamename, GAMENAME_Q3A, sizeof (gamename) - 1);
-		gamename[sizeof (gamename) - 1] = '\0';
+		const char* anon_game = Game_GetNameByProtocol (protocol, &game_options);
+
+		// If we can't determine the game name from the protocol, we will just use
+		// the 1st server we found with this protocol to get a game name
+		if (anon_game != NULL)
+		{
+			strncpy (gamename, anon_game, sizeof (gamename) - 1);
+			gamename[sizeof (gamename) - 1] = '\0';
+		}
+		else
+			gamename[0] = '\0';
+
 		msg_ptr = end_ptr;
 	}
 
-	Com_Printf (MSG_NORMAL, "> %s ---> %s (%s)\n", peer_address, request_name,
-				gamename);
+	Com_Printf (MSG_NORMAL, "> %s ---> %s (%s, %i)\n", peer_address, request_name,
+				gamename[0] != '\0' ? gamename : "unknown game", protocol);
 
-	if (! Game_IsAccepted (gamename))
+	if (gamename[0] != '\0' && ! Game_IsAccepted (gamename))
 	{
 		Com_Printf (MSG_WARNING,
 					"> WARNING: Rejecting %s from %s (game \"%s\" is not accepted)\n",
 					request_name, peer_address, gamename);
 		return;
 	}
+	
+	// Apply the game options
+	if ((game_options & GAME_OPTION_SEND_EMPTY_SERVERS) != 0)
+		opt_empty = true;
+	if ((game_options & GAME_OPTION_SEND_FULL_SERVERS) != 0)
+		opt_full = true;
 
 	// Parse the filtering options
 	strncpy (filter_options, msg_ptr, sizeof (filter_options) - 1);
@@ -439,16 +524,42 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 				Com_Printf (MSG_DEBUG,
 							"    Reject: gametype \"%s\" != requested \"%s\"\n",
 							sv->gametype, gametype);
-			if (strcmp (gamename, sv->gamename) != 0)
+			if (gamename[0] != '\0' && strcmp (gamename, sv->gamename) != 0)
 				Com_Printf (MSG_DEBUG,
 							"    Reject: gamename \"%s\" != requested \"%s\"\n",
 							sv->gamename, gamename);
 		}
 
-		// Check protocols, options, and gamename
+		// Check state and protocol
 		if (sv->state <= sv_state_uninitialized ||
-			sv->protocol != protocol ||
-			(! opt_empty && sv->state == sv_state_empty) ||
+			sv->protocol != protocol)
+		{
+			// Skip it
+			continue;
+		}
+
+		// Since the protocols match, if we don't know the game name yet and
+		// that this server doesn't use the DarkPlaces protocol, use its game name
+		// (if the unknown game was using the DP protocol, the client should have
+		// sent a game name with its "getservers" query)
+		if (gamename[0] == '\0' && sv->anon_properties != NULL)
+		{
+			strncpy (gamename, sv->gamename, sizeof (gamename) - 1);
+			gamename[sizeof (gamename) - 1] = '\0';
+
+			Com_Printf (MSG_DEBUG, "  - Using this server's game name\n");
+
+			if (! Game_IsAccepted (gamename))
+			{
+				Com_Printf (MSG_WARNING,
+							"> WARNING: Rejecting %s from %s (game \"%s\" is not accepted)\n",
+							request_name, peer_address, gamename);
+				return;
+			}
+		}
+
+		// Check options, game type and game name
+		if ((! opt_empty && sv->state == sv_state_empty) ||
 			(! opt_full && sv->state == sv_state_full) ||
 			(! opt_ipv4 && sv->address.ss_family == AF_INET) ||
 			(! opt_ipv6 && sv->address.ss_family == AF_INET6) ||
@@ -678,11 +789,35 @@ static void HandleInfoResponse (server_t* server, const char* msg)
 	}
 	new_clients = ((value != NULL) ? atoi (value) : 0);
 
-	// Q3A doesn't send a gamename, so we add it manually
+	// If the server didn't send a gamename, guess it using the protocol
 	value = SearchInfostring (msg, "gamename");
 	if (value == NULL)
-		value = GAMENAME_Q3A;
-	else if (value[0] == '\0')
+	{
+		// Games that neither send a known heartbeat nor provide a game name are ignored
+		if (server->hb_properties == NULL)
+		{
+			Com_Printf (MSG_WARNING,
+						"> WARNING: invalid infoResponse from %s (no game name)\n",
+						peer_address);
+			return;
+		}
+		
+		value = server->hb_properties->name;
+	}
+	// ... but if it did, it must match the one its heartbeat advertized (if any)
+	else
+	{
+		if (server->hb_properties != NULL &&
+			strcmp (value, server->hb_properties->name) != 0)
+		{
+			Com_Printf (MSG_WARNING,
+						"> WARNING: invalid infoResponse from %s (game name is different from the one advertized by the heartbeat)\n",
+						peer_address);
+			return;
+		}
+	}
+
+	if (value[0] == '\0')
 	{
 		Com_Printf (MSG_WARNING,
 					"> WARNING: invalid infoResponse from %s (game name is void)\n",
@@ -708,6 +843,7 @@ static void HandleInfoResponse (server_t* server, const char* msg)
 	// Save some useful informations in the server entry
 	strncpy (server->gamename, value, sizeof (server->gamename) - 1);
 	server->protocol = new_protocol;
+	server->anon_properties = server->hb_properties;
 	strncpy (server->gametype, new_gametype, sizeof (server->gametype) - 1);
 	if (new_clients == 0)
 		server->state = sv_state_empty;
@@ -735,32 +871,18 @@ void HandleMessage (const char* msg, size_t length,
 					socklen_t addrlen,
 					socket_t recv_socket)
 {
-	server_t* server;
-
 	// If it's an heartbeat
 	if (!strncmp (S2M_HEARTBEAT, msg, strlen (S2M_HEARTBEAT)))
 	{
-		char gameId [64];
-
-		// Extract the game id
-		sscanf (msg + strlen (S2M_HEARTBEAT) + 1, "%63s", gameId);
-		Com_Printf (MSG_NORMAL, "> %s ---> heartbeat (%s)\n",
-					peer_address, gameId);
-
-		// Get the server in the list (add it to the list if necessary)
-		server = Sv_GetByAddr (address, addrlen, true);
-		if (server == NULL)
-			return;
-
-		assert (server->state != sv_state_unused_slot);
-
-		// Ask for some infos
-		SendGetInfo (server, recv_socket);
+		HandleHeartbeat (msg + strlen (S2M_HEARTBEAT), address, addrlen,
+						 recv_socket);
 	}
 
 	// If it's an infoResponse message
 	else if (!strncmp (S2M_INFORESPONSE, msg, strlen (S2M_INFORESPONSE)))
 	{
+		server_t* server;
+
 		Com_Printf (MSG_NORMAL, "> %s ---> infoResponse\n", peer_address);
 	
 		server = Sv_GetByAddr (address, addrlen, false);
