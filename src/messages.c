@@ -23,6 +23,8 @@
 
 #include "common.h"
 #include "system.h"
+
+#include "clients.h"
 #include "games.h"
 #include "messages.h"
 #include "servers.h"
@@ -69,7 +71,6 @@
 // DP & IOQuake3:
 // "getserversExtResponse\\...(6 bytes)...//...(18 bytes)...\\EOT\0\0\0"
 #define M2C_GETSERVERSEXTREPONSE "getserversExtResponse"
-
 
 
 // ---------- Private functions ---------- //
@@ -130,7 +131,7 @@ static const char* SearchInfostring (const char* infostring, const char* key)
 			str_buffer[buffer_ind++] = c;
 		}
 
-		// If it's the key we are looking for, save it in "value"
+		// If it's the key we are looking for, save its value in "str_buffer"
 		if (!strcmp (str_buffer, key))
 		{
 			buffer_ind = 0;
@@ -224,8 +225,8 @@ static void SendGetInfo (server_t* server, socket_t recv_socket, qboolean force_
 	strncpy (msg + msglen, server->challenge, sizeof (msg) - msglen - 1);
 	msg[sizeof (msg) - 1] = '\0';
 	if (sendto (recv_socket, msg, strlen (msg), 0,
-				(const struct sockaddr*)&server->address,
-				server->addrlen) < 0)
+				(const struct sockaddr*)&server->user.address,
+				server->user.addrlen) < 0)
 		Com_Printf (MSG_WARNING, "> WARNING: can't send getinfo (%s)\n",
 					Sys_GetLastNetErrorString ());
 	else
@@ -333,6 +334,9 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 	char* option_ptr;
 	unsigned int nb_servers;
 	const char* request_name;
+
+	if (Cl_BlockedByThrottle (addr, addrlen))
+		return;
 
 	if (extended_request)
 	{
@@ -491,7 +495,7 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 
 	// Add every relevant server
 	nb_servers = 0;
-	for (sv = Sv_GetFirst (); sv != NULL;  sv = Sv_GetNext ())
+	for (sv = Sv_GetFirst (); sv != NULL; sv = Sv_GetNext ())
 	{
 		size_t next_sv_size;
 
@@ -500,7 +504,7 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 		// Extra debugging info
 		if (max_msg_level >= MSG_DEBUG)
 		{
-			const char * addrstr = Sys_SockaddrToString (&sv->address, sv->addrlen);
+			const char * addrstr = Sys_SockaddrToString (&sv->user.address, sv->user.addrlen);
 			Com_Printf (MSG_DEBUG,
 						"  - Comparing server: IP:\"%s\", p:%d, g:\"%s\"\n",
 						addrstr, sv->protocol, sv->gamename);
@@ -508,26 +512,39 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 			if (sv->state <= sv_state_uninitialized)
 				Com_Printf (MSG_DEBUG,
 							"    Reject: server is not initialized\n");
-			if (sv->protocol != protocol)
+			else if (sv->protocol != protocol)
 				Com_Printf (MSG_DEBUG,
 							"    Reject: protocol %d != requested %d\n",
 							sv->protocol, protocol);
-			if (! opt_empty && sv->state == sv_state_empty)
+			else if (! opt_empty && sv->state == sv_state_empty)
 				Com_Printf (MSG_DEBUG, "    Reject: no empty server allowed\n");
-			if (! opt_full && sv->state == sv_state_full)
+			else if (! opt_full && sv->state == sv_state_full)
 				Com_Printf (MSG_DEBUG, "    Reject: no full server allowed\n");
-			if (! opt_ipv4 && sv->address.ss_family == AF_INET)
+			else if (! opt_ipv4 && sv->user.address.ss_family == AF_INET)
 				Com_Printf (MSG_DEBUG, "    Reject: no IPv4 servers allowed\n");
-			if (! opt_ipv6 && sv->address.ss_family == AF_INET6)
+			else if (! opt_ipv6 && sv->user.address.ss_family == AF_INET6)
 				Com_Printf (MSG_DEBUG, "    Reject: no IPv6 servers allowed\n");
-			if (opt_gametype && strcmp (gametype, sv->gametype) != 0)
+			else if (opt_gametype && strcmp (gametype, sv->gametype) != 0)
 				Com_Printf (MSG_DEBUG,
 							"    Reject: gametype \"%s\" != requested \"%s\"\n",
 							sv->gametype, gametype);
-			if (gamename[0] != '\0' && strcmp (gamename, sv->gamename) != 0)
-				Com_Printf (MSG_DEBUG,
-							"    Reject: gamename \"%s\" != requested \"%s\"\n",
-							sv->gamename, gamename);
+			else
+			{
+				if (gamename[0] != '\0')
+				{
+					if (strcmp (gamename, sv->gamename) != 0)
+						Com_Printf (MSG_DEBUG,
+									"    Reject: gamename \"%s\" != requested \"%s\"\n",
+									sv->gamename, gamename);
+				}
+				else
+				{
+					if (sv->anon_properties == NULL)
+						Com_Printf (MSG_DEBUG,
+									"    Reject: can't use \"%s\" as an anonymous game name\n",
+									sv->gamename);
+				}
+			}
 		}
 
 		// Check state and protocol
@@ -561,8 +578,8 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 		// Check options, game type and game name
 		if ((! opt_empty && sv->state == sv_state_empty) ||
 			(! opt_full && sv->state == sv_state_full) ||
-			(! opt_ipv4 && sv->address.ss_family == AF_INET) ||
-			(! opt_ipv6 && sv->address.ss_family == AF_INET6) ||
+			(! opt_ipv4 && sv->user.address.ss_family == AF_INET) ||
+			(! opt_ipv6 && sv->user.address.ss_family == AF_INET6) ||
 			(opt_gametype && strcmp (gametype, sv->gametype) != 0) ||
 			strcmp (gamename, sv->gamename) != 0)
 		{
@@ -571,7 +588,7 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 		}
 
 		// If the packet doesn't have enough free space for this server
-		next_sv_size = (sv->address.ss_family == AF_INET ? 4 : 16) + 3;
+		next_sv_size = (sv->user.address.ss_family == AF_INET ? 4 : 16) + 3;
 		if (packetind + next_sv_size > sizeof (packet))
 		{
 			// Send the packet to the client
@@ -588,13 +605,13 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 			nb_servers = 0;
 		}
 
-		if (sv->address.ss_family == AF_INET)
+		if (sv->user.address.ss_family == AF_INET)
 		{
 			const struct sockaddr_in* sv_sockaddr;
 			unsigned int sv_addr;
 			unsigned short sv_port;
 
-			sv_sockaddr = (const struct sockaddr_in *)&sv->address;
+			sv_sockaddr = (const struct sockaddr_in *)&sv->user.address;
 			sv_addr = ntohl (sv_sockaddr->sin_addr.s_addr);
 			sv_port = ntohs (sv_sockaddr->sin_port);
 
@@ -610,7 +627,7 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 				Com_Printf (MSG_DEBUG,
 							"  - Using mapped address %u.%u.%u.%u:%hu\n",
 							sv_addr >> 24, (sv_addr >> 16) & 0xFF,
-							(sv_addr >>  8) & 0xFF, sv_addr & 0xFF,
+							(sv_addr >> 8) & 0xFF, sv_addr & 0xFF,
 							sv_port);
 			}
 
@@ -639,7 +656,7 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 			const struct sockaddr_in6* sv_sockaddr6;
 			unsigned short sv_port;
 
-			sv_sockaddr6 = (const struct sockaddr_in6 *)&sv->address;
+			sv_sockaddr6 = (const struct sockaddr_in6 *)&sv->user.address;
 
 			// Heading '/'
 			packet[packetind] = '/';

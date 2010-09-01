@@ -25,19 +25,6 @@
 #define _SYSTEM_H_
 
 
-#ifdef WIN32
-#	include <winsock2.h>
-#	include <ws2tcpip.h>
-#else
-#	include <pwd.h>
-#	include <unistd.h>
-#	include <netinet/in.h>
-#	include <arpa/inet.h>
-#	include <netdb.h>
-#	include <sys/socket.h>
-#endif
-
-
 // ---------- Contants ---------- //
 
 // The default name of the log file

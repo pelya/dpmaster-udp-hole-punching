@@ -40,9 +40,9 @@
 static server_t* servers = NULL;
 static unsigned int max_nb_servers = DEFAULT_MAX_NB_SERVERS;
 static unsigned int nb_servers = 0;
-static server_t** hash_table_ipv4 = NULL;
-static server_t** hash_table_ipv6 = NULL;
-static size_t hash_size = DEFAULT_HASH_SIZE;
+static user_hash_table_t hash_table_ipv4;
+static user_hash_table_t hash_table_ipv6;
+static size_t sv_hash_size = DEFAULT_SV_HASH_SIZE;
 
 static unsigned int max_per_address = DEFAULT_MAX_NB_SERVERS_PER_ADDRESS;
 
@@ -63,99 +63,8 @@ static addrmap_t* addrmaps = NULL;
 // Are servers talking from a loopback interface allowed?
 qboolean allow_loopback = false;
 
-// Are port numbers used when computing servers hashes?
-qboolean hash_ports = false;
-
 
 // ---------- Private functions ---------- //
-
-/*
-====================
-Sv_AddressHash
-
-Compute the hash of a server address
-====================
-*/
-static unsigned int Sv_AddressHash (const struct sockaddr_storage* address)
-{
-	unsigned int hash;
-
-	if (address->ss_family == AF_INET6)
-	{
-		const struct sockaddr_in6* addr6;
-		const unsigned int* ipv6_ptr;
-
-		addr6 = (const struct sockaddr_in6*)address;
-		ipv6_ptr = (const unsigned int*)&addr6->sin6_addr.s6_addr;
-		
-		// Since an IPv6 device can have multiple addresses, we only hash
-		// the non-configurable part of its public address (meaning the first
-		// 64 bits, or subnet part)
-		hash = ipv6_ptr[0] ^ ipv6_ptr[1];
-		
-		if (hash_ports)
-			hash ^= addr6->sin6_port;
-	}
-	else
-	{
-		const struct sockaddr_in* addr4;
-
-		assert(address->ss_family == AF_INET);
-
-		addr4 = (const struct sockaddr_in*)address;
-		hash = addr4->sin_addr.s_addr;
-		
-		if (hash_ports)
-			hash ^= addr4->sin_port;
-	}
-
-	// Merge all the bits in the first 16 bits
-	hash = (hash & 0xFFFF) ^ (hash >> 16);
-	
-	// Merge the bits we won't use in the upper part into the lower part.
-	// If hash_size < 8, some bits will be lost, but it's not a real problem
-	hash = (hash ^ (hash >> hash_size)) & ((1 << hash_size) - 1);
-
-	return hash;
-}
-
-
-/*
-====================
-Sv_AddToHashTable
-
-Add a server to the hash table
-====================
-*/
-static void Sv_AddToHashTable (server_t* sv, unsigned int hash, server_t** hash_table)
-{
-	server_t** hash_entry_ptr;
-
-	assert (hash == Sv_AddressHash (&sv->address));
-
-	hash_entry_ptr = &hash_table[hash];
-	sv->next = *hash_entry_ptr;
-	sv->prev_ptr = hash_entry_ptr;
-	*hash_entry_ptr = sv;
-	if (sv->next != NULL)
-		sv->next->prev_ptr = &sv->next;
-}
-
-
-/*
-====================
-Sv_RemoveFromHashTable
-
-Remove a server from the hash table
-====================
-*/
-static void Sv_RemoveFromHashTable (server_t* sv)
-{
-	*sv->prev_ptr = sv->next;
-	if (sv->next != NULL)
-		sv->next->prev_ptr = sv->prev_ptr;	
-}
-
 
 /*
 ====================
@@ -168,7 +77,7 @@ static void Sv_Remove (server_t* sv)
 {
 	int sv_ind;
 
-	Sv_RemoveFromHashTable (sv);
+	Com_UserHashTable_Remove (&sv->user);
 
 	// Mark this structure as "free"
 	sv->state = sv_state_unused_slot;
@@ -198,38 +107,9 @@ static void Sv_Remove (server_t* sv)
 	nb_servers--;
 	Com_Printf (MSG_NORMAL,
 				"> %s timed out; %u server(s) currently registered\n",
-				Sys_SockaddrToString(&sv->address, sv->addrlen), nb_servers);
+				Sys_SockaddrToString(&sv->user.address, sv->user.addrlen), nb_servers);
 
 	assert (last_used_slot >= (int)nb_servers - 1);
-}
-
-
-/*
-====================
-Sv_AllocateHashTable
-
-Allocate a hash table
-====================
-*/
-static server_t** Sv_AllocateHashTable (size_t table_size, const char* proto_name)
-{
-	server_t** result;
-	size_t array_size = table_size * sizeof (server_t*);
-
-	result = malloc (array_size);
-	if (result != NULL)
-	{
-		memset (result, 0, array_size);
-		Com_Printf (MSG_DEBUG,
-					"> %s hash table allocated (%u entries)\n",
-					proto_name, table_size);
-	}
-	else
-		Com_Printf (MSG_ERROR,
-					"> ERROR: can't allocate the %s hash table (%s)\n",
-					proto_name, strerror (errno));
-	
-	return result;
 }
 
 
@@ -266,76 +146,6 @@ static qboolean Sv_IsActive (unsigned int sv_ind)
 
 /*
 ====================
-Sv_CompareIPv4Addr
-
-Compare 2 IPv4 addresses and return "true" if they're equal
-====================
-*/
-static qboolean Sv_SameIPv4Addr (const struct sockaddr_storage* addr1,
-								 const struct sockaddr_storage* addr2,
-								 qboolean* same_public_address)
-{
-	const struct sockaddr_in *addr1_in, *addr2_in;
-
-	addr1_in = (const struct sockaddr_in*)addr1;
-	addr2_in = (const struct sockaddr_in*)addr2;
-
-	// Same address?
-	if (addr1_in->sin_addr.s_addr == addr2_in->sin_addr.s_addr)
-	{
-		*same_public_address = true;
-
-		// Same port?
-		if (addr1_in->sin_port == addr2_in->sin_port)
-			return true;
-	}
-	else
-		*same_public_address = false;
-
-	return false;
-}
-
-
-/*
-====================
-Sv_CompareIPv6Addr
-
-Compare 2 IPv6 addresses and return "true" if they're equal
-====================
-*/
-static qboolean Sv_SameIPv6Addr (const struct sockaddr_storage* addr1,
-								 const struct sockaddr_storage* addr2,
-								 qboolean* same_public_address)
-{
-	const struct sockaddr_in6 *addr1_in6, *addr2_in6;
-	const unsigned char *addr1_buff, *addr2_buff;
-
-	addr1_in6 = (const struct sockaddr_in6*)addr1;
-	addr1_buff = (const unsigned char*)&addr1_in6->sin6_addr.s6_addr;
-
-	addr2_in6 = (const struct sockaddr_in6*)addr2;
-	addr2_buff = (const unsigned char*)&addr2_in6->sin6_addr.s6_addr;
-
-	// Same subnet address (first 64 bits)?
-	if (memcmp (addr1_buff, addr2_buff, 8) == 0)
-	{
-		*same_public_address = true;
-
-		// Same scope ID, port, and host address (last 64 bits)?
-		if (addr1_in6->sin6_scope_id == addr2_in6->sin6_scope_id &&
-			addr1_in6->sin6_port == addr2_in6->sin6_port &&
-			memcmp (addr1_buff + 8, addr2_buff + 8, 8) == 0)
-			return true;
-	}
-	else
-		*same_public_address = false;
-
-	return false;
-}
-
-
-/*
-====================
 Sv_GetByAddr_Internal
 
 Search for a particular server in the list
@@ -343,28 +153,28 @@ Search for a particular server in the list
 */
 static server_t* Sv_GetByAddr_Internal (const struct sockaddr_storage* address, unsigned int* same_address_found)
 {
-	unsigned int hash = Sv_AddressHash (address);
-	server_t** hash_table;
+	unsigned int hash = Com_AddressHash (address, sv_hash_size);
+	user_hash_table_t* hash_table;
 	server_t* sv;
 	qboolean (*IsSameAddress) (const struct sockaddr_storage* addr1, const struct sockaddr_storage* addr2, qboolean* same_public_address);
 	
 	if (address->ss_family == AF_INET6)
 	{
-		hash_table = hash_table_ipv6;
-		IsSameAddress = Sv_SameIPv6Addr;
+		hash_table = &hash_table_ipv6;
+		IsSameAddress = &Com_SameIPv6Addr;
 	}
 	else
 	{
 		assert (address->ss_family == AF_INET);
-		hash_table = hash_table_ipv4;
-		IsSameAddress = Sv_SameIPv4Addr;
+		hash_table = &hash_table_ipv4;
+		IsSameAddress = &Com_SameIPv4Addr;
 	}
-	sv = hash_table[hash];
+	sv = (server_t*)hash_table->entries[hash];
 
 	*same_address_found = 0;
 	while (sv != NULL)
 	{
-		server_t* next_sv = sv->next;
+		server_t* next_sv = (server_t*)sv->user.next;
 		unsigned int sv_ind = (unsigned int)(sv - servers);
 
 		if (Sv_IsActive (sv_ind))
@@ -374,15 +184,15 @@ static server_t* Sv_GetByAddr_Internal (const struct sockaddr_storage* address, 
 			qboolean same_address;
 
 			same_public_address = false;
-			same_address = IsSameAddress (&sv->address, address, &same_public_address);
+			same_address = IsSameAddress (&sv->user.address, address, &same_public_address);
 			if (same_public_address)
 				*same_address_found += 1;
 			if (same_address)
 			{
 				// Move it on top of the list (it's useful because heartbeats
 				// are almost always followed by infoResponses)
-				Sv_RemoveFromHashTable (sv);
-				Sv_AddToHashTable (sv, hash, hash_table);
+				Com_UserHashTable_Remove (&sv->user);
+				Com_UserHashTable_Add (hash_table, &sv->user, hash);
 
 				return sv;
 			}
@@ -623,12 +433,11 @@ Set a new hash size value
 */
 qboolean Sv_SetHashSize (unsigned int size)
 {
-	// Too late? Too small or too big?
-	if (hash_table_ipv4 != NULL || hash_table_ipv6 != NULL ||
-		size > MAX_HASH_SIZE)
+	// Too late? Or too big?
+	if (servers != NULL || size > MAX_HASH_SIZE)
 		return false;
 
-	hash_size = size;
+	sv_hash_size = size;
 	return true;
 }
 
@@ -673,12 +482,11 @@ qboolean Sv_SetMaxNbServersPerAddress (unsigned int nb)
 ====================
 Sv_Init
 
-Initialize the server list and hash table
+Initialize the server list and hash tables
 ====================
 */
 qboolean Sv_Init (void)
 {
-	unsigned int hash_table_size;
 	size_t array_size;
 
 	// Allocate "servers" and clean it
@@ -700,20 +508,8 @@ qboolean Sv_Init (void)
 	else
 		Com_Printf (MSG_NORMAL, "%u)\n", max_per_address);
 
-	// Allocate the hash tables and clean them
-	hash_table_size = (1 << hash_size);
-	if (Sys_IsListeningOn (AF_INET))
-	{
-		hash_table_ipv4 = Sv_AllocateHashTable (hash_table_size, "IPv4");
-		if (hash_table_ipv4 == NULL)
-			return false;
-	}
-	if (Sys_IsListeningOn (AF_INET6))
-	{
-		hash_table_ipv6 = Sv_AllocateHashTable (hash_table_size, "IPv6");
-		if (hash_table_ipv6 == NULL)
-			return false;
-	}
+	if (! Com_UserHashTable_InitTables (&hash_table_ipv4, &hash_table_ipv6, sv_hash_size, "Server"))
+		return false;
 
 	return true;
 }
@@ -733,12 +529,12 @@ server_t* Sv_GetByAddr (const struct sockaddr_storage* address, socklen_t addrle
 	const addrmap_t* addrmap = NULL;
 	unsigned int hash;
 	unsigned int ind;
-	server_t** hash_table;
+	user_hash_table_t* hash_table;
 
 	sv = Sv_GetByAddr_Internal (address, &nb_same_address);
 	if (sv != NULL)
 	{
-		assert (addrlen == sv->addrlen);
+		assert (addrlen == sv->user.addrlen);
 		return sv;
 	}
 
@@ -829,17 +625,17 @@ server_t* Sv_GetByAddr (const struct sockaddr_storage* address, socklen_t addrle
 
 	// Initialize the structure
 	memset (sv, 0, sizeof (*sv));
-	memcpy (&sv->address, address, sizeof (sv->address));
-	sv->addrlen = addrlen;
+	memcpy (&sv->user.address, address, sizeof (sv->user.address));
+	sv->user.addrlen = addrlen;
 	sv->addrmap = addrmap;
 
 	// Add it to the list it belongs to
-	hash = Sv_AddressHash (address);
+	hash = Com_AddressHash (address, sv_hash_size);
 	if (address->ss_family == AF_INET6)
-		hash_table = hash_table_ipv6;
+		hash_table = &hash_table_ipv6;
 	else
-		hash_table = hash_table_ipv4;
-	Sv_AddToHashTable (sv, hash, hash_table);
+		hash_table = &hash_table_ipv4;
+	Com_UserHashTable_Add (hash_table, &sv->user, hash);
 
 	sv->state = sv_state_uninitialized;
 	sv->timeout = crt_time + TIMEOUT_HEARTBEAT;
@@ -932,7 +728,7 @@ void Sv_PrintServerList (msg_level_t msg_level)
 			const char* state_string;
 
 			Com_Printf (msg_level, " * %s",
-						Sys_SockaddrToString (&sv->address, sv->addrlen));
+						Sys_SockaddrToString (&sv->user.address, sv->user.addrlen));
 			if (sv->addrmap != NULL)
 				Com_Printf (msg_level, ", mapped to %s",
 							sv->addrmap->to_string);

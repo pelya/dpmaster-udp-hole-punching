@@ -33,9 +33,8 @@
 // Maximum number of servers for one given IP address by default
 #define DEFAULT_MAX_NB_SERVERS_PER_ADDRESS 32
 
-// Address hash size in bits (between 0 and MAX_HASH_SIZE)
-#define DEFAULT_HASH_SIZE 10
-#define MAX_HASH_SIZE 16
+// Address hash size in bits for servers (between 0 and MAX_HASH_SIZE)
+#define DEFAULT_SV_HASH_SIZE 10
 
 // Number of characters in a challenge, including the '\0'
 #define CHALLENGE_MIN_LENGTH 9
@@ -74,15 +73,12 @@ typedef enum
 struct game_properties_s;		// Defined in games.h
 typedef struct server_s
 {
-	struct sockaddr_storage address;
-	struct server_s* next;
-	struct server_s** prev_ptr;
+	user_t user;										// WARNING: MUST be the 1st member, for compatibility with the user hash tables
 	const struct addrmap_s* addrmap;
 	const struct game_properties_s* anon_properties;	// game properties, for an anonymous game
 	const struct game_properties_s* hb_properties;		// future "anon_properties", not yet validated by an infoResponse
 	time_t timeout;
 	time_t challenge_timeout;
-	socklen_t addrlen;
 	int protocol;
 	server_state_t state;
 	char challenge [CHALLENGE_MAX_LENGTH];
@@ -96,9 +92,6 @@ typedef struct server_s
 // Are servers talking from a loopback interface allowed?
 extern qboolean allow_loopback;
 
-// Are port numbers used when computing servers hashes?
-extern qboolean hash_ports;
-
 
 // ---------- Public functions (servers) ---------- //
 
@@ -107,7 +100,7 @@ qboolean Sv_SetHashSize (unsigned int size);
 qboolean Sv_SetMaxNbServers (unsigned int nb);
 qboolean Sv_SetMaxNbServersPerAddress (unsigned int nb);
 
-// Initialize the server list and hash table
+// Initialize the server list and hash tables
 qboolean Sv_Init (void);
 
 // Search for a particular server in the list; add it if necessary

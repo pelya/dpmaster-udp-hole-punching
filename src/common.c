@@ -56,6 +56,9 @@ char peer_address [128];
 // Should we print the date before any new console message?
 qboolean print_date = false;
 
+// Are port numbers used when computing address hashes?
+qboolean hash_ports = false;
+
 
 // ---------- Private functions ---------- //
 
@@ -212,6 +215,101 @@ qboolean Com_UpdateLogStatus (qboolean init)
 }
 
 
+// ---------- Private functions (user hash table) ---------- //
+
+/*
+====================
+Com_UserHashTable_Init
+
+Initialize a user hash table
+====================
+*/
+static qboolean Com_UserHashTable_Init (user_hash_table_t* table,
+										size_t hash_size,
+										const char* table_name,
+										sa_family_t addr_family,
+										const char* proto_name)
+{
+	if (Sys_IsListeningOn (addr_family))
+	{
+		size_t array_size = (1 << hash_size) * sizeof (user_t*);
+		user_t** result;
+
+		result = malloc (array_size);
+		if (result == NULL)
+		{
+			Com_Printf (MSG_ERROR,
+						"> ERROR: can't allocate the %s %s hash table (%s)\n",
+						table_name, proto_name, strerror (errno));
+			return false;
+		}
+
+		memset (result, 0, array_size);
+		table->entries = result;
+
+		Com_Printf (MSG_DEBUG,
+					"> %s hash table allocated for %s (%u entries)\n",
+					table_name, proto_name, 1 << hash_size);
+	}
+
+	return true;
+}
+
+
+// ---------- Public functions (user hash table) ---------- //
+
+/*
+====================
+Com_UserHashTable_InitTables
+
+Initialize user hash tables
+====================
+*/
+qboolean Com_UserHashTable_InitTables (user_hash_table_t* ipv4_table,
+									   user_hash_table_t* ipv6_table,
+									   size_t hash_size,
+									   const char* tables_name)
+{
+	return (Com_UserHashTable_Init (ipv4_table, hash_size, tables_name, AF_INET, "IPv4") &&
+			Com_UserHashTable_Init (ipv6_table, hash_size, tables_name, AF_INET6, "IPv6"));
+}
+
+
+/*
+====================
+Com_UserHashTable_Add
+
+Add a user to the hash table
+====================
+*/
+void Com_UserHashTable_Add (user_hash_table_t* table, user_t* user, unsigned int hash)
+{
+	user_t** hash_entry_ptr;
+
+	hash_entry_ptr = &table->entries[hash];
+	user->next = *hash_entry_ptr;
+	user->prev_ptr = hash_entry_ptr;
+	*hash_entry_ptr = user;
+	if (user->next != NULL)
+		user->next->prev_ptr = &user->next;
+}
+
+
+/*
+====================
+Com_UserHashTable_Remove
+
+Remove a user from its hash table
+====================
+*/
+void Com_UserHashTable_Remove (user_t* user)
+{
+	*user->prev_ptr = user->next;
+	if (user->next != NULL)
+		user->next->prev_ptr = user->prev_ptr;	
+}
+
+
 // ---------- Public functions (misc) ---------- //
 
 /*
@@ -287,4 +385,131 @@ void Com_SignalHandler (int Signal)
 			assert(false);
 			break;
 	}
+}
+
+
+/*
+====================
+Com_AddressHash
+
+Compute the hash of a server address
+====================
+*/
+unsigned int Com_AddressHash (const struct sockaddr_storage* address, size_t hash_size)
+{
+	unsigned int hash;
+
+	if (address->ss_family == AF_INET6)
+	{
+		const struct sockaddr_in6* addr6;
+		const unsigned int* ipv6_ptr;
+
+		addr6 = (const struct sockaddr_in6*)address;
+		ipv6_ptr = (const unsigned int*)&addr6->sin6_addr.s6_addr;
+		
+		// Since an IPv6 device can have multiple addresses, we only hash
+		// the non-configurable part of its public address (meaning the first
+		// 64 bits, or subnet part)
+		hash = ipv6_ptr[0] ^ ipv6_ptr[1];
+		
+		if (hash_ports)
+			hash ^= addr6->sin6_port;
+	}
+	else
+	{
+		const struct sockaddr_in* addr4;
+
+		assert(address->ss_family == AF_INET);
+
+		addr4 = (const struct sockaddr_in*)address;
+		hash = addr4->sin_addr.s_addr;
+		
+		if (hash_ports)
+			hash ^= addr4->sin_port;
+	}
+
+	// Merge all the bits in the first 16 bits
+	hash = (hash & 0xFFFF) ^ (hash >> 16);
+	
+	// Merge the bits we won't use in the upper part into the lower part.
+	// If hash_size < 8, some bits will be lost, but it's not a real problem
+	hash = (hash ^ (hash >> hash_size)) & ((1 << hash_size) - 1);
+
+	return hash;
+}
+
+
+/*
+====================
+Com_SameIPv4Addr
+
+Compare 2 IPv4 addresses and return "true" if they're equal
+====================
+*/
+qboolean Com_SameIPv4Addr (const struct sockaddr_storage* addr1,
+						   const struct sockaddr_storage* addr2,
+						   qboolean* same_public_address)
+{
+	const struct sockaddr_in *addr1_in, *addr2_in;
+
+	assert (addr1->ss_family == AF_INET);
+	assert (addr2->ss_family == AF_INET);
+
+	addr1_in = (const struct sockaddr_in*)addr1;
+	addr2_in = (const struct sockaddr_in*)addr2;
+
+	// Same address?
+	if (addr1_in->sin_addr.s_addr == addr2_in->sin_addr.s_addr)
+	{
+		*same_public_address = true;
+
+		// Same port?
+		if (addr1_in->sin_port == addr2_in->sin_port)
+			return true;
+	}
+	else
+		*same_public_address = false;
+
+	return false;
+}
+
+
+/*
+====================
+Com_SameIPv6Addr
+
+Compare 2 IPv6 addresses and return "true" if they're equal
+====================
+*/
+qboolean Com_SameIPv6Addr (const struct sockaddr_storage* addr1,
+						   const struct sockaddr_storage* addr2,
+						   qboolean* same_public_address)
+{
+	const struct sockaddr_in6 *addr1_in6, *addr2_in6;
+	const unsigned char *addr1_buff, *addr2_buff;
+
+	assert (addr1->ss_family == AF_INET6);
+	assert (addr2->ss_family == AF_INET6);
+
+	addr1_in6 = (const struct sockaddr_in6*)addr1;
+	addr1_buff = (const unsigned char*)&addr1_in6->sin6_addr.s6_addr;
+
+	addr2_in6 = (const struct sockaddr_in6*)addr2;
+	addr2_buff = (const unsigned char*)&addr2_in6->sin6_addr.s6_addr;
+
+	// Same subnet address (first 64 bits)?
+	if (memcmp (addr1_buff, addr2_buff, 8) == 0)
+	{
+		*same_public_address = true;
+
+		// Same scope ID, port, and host address (last 64 bits)?
+		if (addr1_in6->sin6_scope_id == addr2_in6->sin6_scope_id &&
+			addr1_in6->sin6_port == addr2_in6->sin6_port &&
+			memcmp (addr1_buff + 8, addr2_buff + 8, 8) == 0)
+			return true;
+	}
+	else
+		*same_public_address = false;
+
+	return false;
 }

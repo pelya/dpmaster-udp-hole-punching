@@ -45,6 +45,7 @@ my @serverPropertiesList = (
 	{
 		family => GAME_FAMILY_QUAKE3ARENA,
 		id => "Q3Server3",
+		protonum => 2,
 	},
 
 	# RTCW servers
@@ -71,9 +72,7 @@ foreach my $propertiesRef (@serverPropertiesList) {
 	# Create the server
 	my $serverRef = Server_New ($serverFamily);
 	Server_SetProperty ($serverRef, "id", $serverId);
-	if (defined $serverProtocol) {
-		Server_SetGameProperty ($serverRef, "protocol", $serverProtocol);
-	}
+	Server_SetGameProperty ($serverRef, "protocol", $serverProtocol);
 	if (defined $serverGame) {
 		Server_SetGameProperty ($serverRef, "gamename", $serverGame);
 	}

@@ -336,7 +336,8 @@ in the infostring.
 
             As you can see in this sample, since the game name is mandatory in
             an extended query, you'll have to use the game name "Quake3Arena"
-            explicitly if you want to ask for Q3A servers.
+            explicitly if you want to ask for Q3A servers. Likewise, you'll have
+            to specify "wolfmp" for RtCW servers, and "et" for WoET servers.
 
     7) getserversExtResponse:
 

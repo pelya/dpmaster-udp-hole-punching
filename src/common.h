@@ -38,11 +38,27 @@
 #include <time.h>
 
 
+#ifdef WIN32
+#	include <winsock2.h>
+#	include <ws2tcpip.h>
+#else
+#	include <pwd.h>
+#	include <unistd.h>
+#	include <netinet/in.h>
+#	include <arpa/inet.h>
+#	include <netdb.h>
+#	include <sys/socket.h>
+#endif
+
+
 // ---------- Constants ---------- //
 
 // Maximum and minimum sizes for a valid incoming packet
 #define MAX_PACKET_SIZE_IN 2048
 #define MIN_PACKET_SIZE_IN 5
+
+// Maximum address hash size in bits
+#define MAX_HASH_SIZE 16
 
 
 // ---------- Types ---------- //
@@ -88,6 +104,21 @@ typedef enum
 	CMDLINE_STATUS_NOT_ENOUGH_MEMORY,
 } cmdline_status_t;
 
+// User (client or server)
+typedef struct user_s
+{
+	struct sockaddr_storage address;
+	socklen_t addrlen;
+	struct user_s* next;
+	struct user_s** prev_ptr;
+} user_t;
+
+// Hash table for users
+typedef struct user_hash_table_s
+{
+	user_t** entries;
+} user_hash_table_t;
+
 
 // ---------- Public variables ---------- //
 
@@ -102,6 +133,24 @@ extern char peer_address [128];
 
 // Should we print the date before any new console message?
 extern qboolean print_date;
+
+// Are port numbers used when computing address hashes?
+extern qboolean hash_ports;
+
+
+// ---------- Public functions (user hash table) ---------- //
+
+// Initialize user hash tables
+qboolean Com_UserHashTable_InitTables (user_hash_table_t* ipv4_table,
+									   user_hash_table_t* ipv6_table,
+									   size_t hash_size,
+									   const char* tables_name);
+
+// Add a user to the hash table
+void Com_UserHashTable_Add (user_hash_table_t* table, user_t* user, unsigned int hash);
+
+// Remove a user from its hash table
+void Com_UserHashTable_Remove (user_t* user);
 
 
 // ---------- Public functions (logging) ---------- //
@@ -129,6 +178,15 @@ void Com_Printf (msg_level_t msg_level, const char* format, ...);
 
 // Handling of the signals sent to this process
 void Com_SignalHandler (int Signal);
+
+// Compute the hash of a server address
+unsigned int Com_AddressHash (const struct sockaddr_storage* address, size_t hash_size);
+
+// Compare 2 IPv4 addresses and return "true" if they're equal
+qboolean Com_SameIPv4Addr (const struct sockaddr_storage* addr1, const struct sockaddr_storage* addr2, qboolean* same_public_address);
+
+// Compare 2 IPv6 addresses and return "true" if they're equal
+qboolean Com_SameIPv6Addr (const struct sockaddr_storage* addr1, const struct sockaddr_storage* addr2, qboolean* same_public_address);
 
 
 #endif  // #ifndef _COMMON_H_

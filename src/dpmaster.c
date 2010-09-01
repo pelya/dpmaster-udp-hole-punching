@@ -24,6 +24,8 @@
 
 #include "common.h"
 #include "system.h"
+
+#include "clients.h"
 #include "games.h"
 #include "messages.h"
 #include "servers.h"
@@ -46,6 +48,42 @@ static const cmdlineopt_t cmdline_options [] =
 		"Accept servers on loopback interfaces.\n"
 		"   FOR DEBUGGING PURPOSES ONLY!",
 		{ 0, 0 },
+		'\0',
+		0,
+		0
+	},
+	{
+		"cl-hash-size",
+		"<hash_size>",
+		"Hash size used for clients, in bits, up to %d (default: %d)",
+		{ MAX_HASH_SIZE, DEFAULT_CL_HASH_SIZE },
+		'\0',
+		1,
+		1
+	},
+	{
+		"flood-protection",
+		NULL,
+		"Enable the flood protection against abusive client requests",
+		{ 0, 0 },
+		'f',
+		0,
+		0
+	},
+	{
+		"fp-decay-time",
+		"<decay_time>",
+		"Set the decay time of the flood protection, in seconds (default: %d)",
+		{ DEFAULT_FP_DECAY_TIME, 0 },
+		'\0',
+		0,
+		0
+	},
+	{
+		"fp-throttle",
+		"<throttle_limit>",
+		"Set the throttle limit of the flood protection (default: %d)",
+		{ DEFAULT_FP_THROTTLE, 0 },
 		'\0',
 		0,
 		0
@@ -83,7 +121,7 @@ static const cmdlineopt_t cmdline_options [] =
 	{
 		"hash-ports",
 		NULL,
-		"Use both a server's address and port number when computing its hash value.\n"
+		"Use both an host's address and port number when computing its hash value.\n"
 		"   The check for a maximum number of servers per address won't work correctly.\n"
 		"   FOR DEBUGGING PURPOSES ONLY!",
 		{ 0, 0 },
@@ -94,8 +132,8 @@ static const cmdlineopt_t cmdline_options [] =
 	{
 		"hash-size",
 		"<hash_size>",
-		"Hash size in bits, up to %d (default: %d)",
-		{ MAX_HASH_SIZE, DEFAULT_HASH_SIZE },
+		"Hash size used for servers in bits, up to %d (default: %d)",
+		{ MAX_HASH_SIZE, DEFAULT_SV_HASH_SIZE },
 		'H',
 		1,
 		1
@@ -135,6 +173,15 @@ static const cmdlineopt_t cmdline_options [] =
 		"   Addresses can contain a port number (ex: myaddr.net:1234)",
 		{ 0, 0 },
 		'm',
+		1,
+		1
+	},
+	{
+		"max-clients",
+		"<max_clients>",
+		"Maximum number of clients recorded (default: %d)",
+		{ DEFAULT_MAX_NB_CLIENTS, 0 },
+		'\0',
 		1,
 		1
 	},
@@ -285,6 +332,58 @@ static cmdline_status_t Cmdline_Option (const cmdlineopt_t* opt, const char** pa
 	if (strcmp (opt_name, "allow-loopback") == 0)
 		allow_loopback = true;
 
+	// Flood protection
+	else if (strcmp (opt_name, "flood-protection") == 0)
+		flood_protection = true;
+
+	// Flood protection decay time
+	else if (strcmp (opt_name, "fp-decay-time") == 0)
+	{
+		const char* start_ptr;
+		char* end_ptr;
+		unsigned int decay_time;
+
+		start_ptr = params[0];
+		decay_time = (unsigned int)strtol (start_ptr, &end_ptr, 0);
+		if (end_ptr == start_ptr || *end_ptr != '\0')
+			return CMDLINE_STATUS_INVALID_OPT_PARAMS;
+
+		if (! Cl_SetFPDecayTime (decay_time))
+			return CMDLINE_STATUS_INVALID_OPT_PARAMS;
+	}
+
+	// Flood protection throttle limit
+	else if (strcmp (opt_name, "fp-throttle") == 0)
+	{
+		const char* start_ptr;
+		char* end_ptr;
+		unsigned int throttle;
+
+		start_ptr = params[0];
+		throttle = (unsigned int)strtol (start_ptr, &end_ptr, 0);
+		if (end_ptr == start_ptr || *end_ptr != '\0')
+			return CMDLINE_STATUS_INVALID_OPT_PARAMS;
+
+		if (! Cl_SetFPThrottle (throttle))
+			return CMDLINE_STATUS_INVALID_OPT_PARAMS;
+	}
+
+	// Client hash size
+	else if (strcmp (opt_name, "cl-hash-size") == 0)
+	{
+		const char* start_ptr;
+		char* end_ptr;
+		unsigned int hash_size;
+
+		start_ptr = params[0];
+		hash_size = (unsigned int)strtol (start_ptr, &end_ptr, 0);
+		if (end_ptr == start_ptr || *end_ptr != '\0')
+			return CMDLINE_STATUS_INVALID_OPT_PARAMS;
+
+		if (! Cl_SetHashSize (hash_size))
+			return CMDLINE_STATUS_INVALID_OPT_PARAMS;
+	}
+
 	// Game properties
 	else if (strcmp (opt_name, "game-properties") == 0)
 	{
@@ -308,7 +407,7 @@ static cmdline_status_t Cmdline_Option (const cmdlineopt_t* opt, const char** pa
 	else if (strcmp (opt_name, "hash-ports") == 0)
 		hash_ports = true;
 
-	// Hash size
+	// Server hash size
 	else if (strcmp (opt_name, "hash-size") == 0)
 	{
 		const char* start_ptr;
@@ -352,6 +451,22 @@ static cmdline_status_t Cmdline_Option (const cmdlineopt_t* opt, const char** pa
 	else if (strcmp (opt_name, "map") == 0)
 	{
 		if (! Sv_AddAddressMapping (params[0]))
+			return CMDLINE_STATUS_INVALID_OPT_PARAMS;
+	}
+
+	// Maximum number of clients
+	else if (strcmp (opt_name, "max-clients") == 0)
+	{
+		const char* start_ptr;
+		char* end_ptr;
+		unsigned int max_nb_clients;
+
+		start_ptr = params[0];
+		max_nb_clients = (unsigned int)strtol (start_ptr, &end_ptr, 0);
+		if (end_ptr == start_ptr || *end_ptr != '\0')
+			return CMDLINE_STATUS_INVALID_OPT_PARAMS;
+		
+		if (! Cl_SetMaxNbClients (max_nb_clients))
 			return CMDLINE_STATUS_INVALID_OPT_PARAMS;
 	}
 
@@ -809,6 +924,10 @@ static qboolean SecureInit (void)
 
 	// Initialize the server list and hash table
 	if (! Sv_Init ())
+		return false;
+
+	// Initialize the client list and hash table (query rate throttling)
+	if (! Cl_Init ())
 		return false;
 
 	return true;

@@ -14,10 +14,11 @@
  6) LOGGING
  7) GAME POLICY
  8) GAME PROPERTIES
- 9) ADDRESS MAPPING
-10) LISTENING INTERFACES
-11) VERSION HISTORY
-12) CONTACTS & LINKS
+ 9) FLOOD PROTECTION
+10) ADDRESS MAPPING
+11) LISTENING INTERFACES
+12) VERSION HISTORY
+13) CONTACTS & LINKS
 
 
 1) INTRODUCTION:
@@ -164,9 +165,9 @@ for Windows systems, or in the "/var/log" directory for UNIX systems. You can
 change the path and name of this file using the "--log-file" option.
 
 The obvious way to use the log is to enable it by default. But if you want to do
-that, you may consider using a lesser verbose level ("-v" or "--verbose", with a
-value of 1 - only errors, or 2 - only errors and warnings), as dpmaster tends
-to be very verbose at its default level (3) or higher.
+that, you may want to consider using a lesser verbose level ("-v" or
+"--verbose", with a value of 1 - only errors, or 2 - only errors and warnings),
+as dpmaster tends to be very verbose at its default level (3) or higher.
 
 Another way to use the log is to set the verbose level to its maximum value, but
 to enable the log only when needed, and then to disable it afterwards. This is
@@ -331,7 +332,38 @@ list will contain your modifications. It's a good way to check that you didn't
 make any mistake before actually running your master server.
 
 
-9) ADDRESS MAPPING:
+9) FLOOD PROTECTION:
+
+If the master server you run has to handle a lot of clients, you will probably
+be interested in the flood protection mechanism Timothee Besset contributed to
+dpmaster version 2.2.
+
+Its purpose is to protect the master server bandwidth, by temporary ignoring the
+requests of clients which have already made several ones in the few seconds
+before. More precisely, a client can only make a limited number of requests (up
+to a "throttle limit") before it is only allowed one request every X seconds (X
+is called the "decay time"). A simple way to view it is to imagine that each
+client has initially - and at most - a number of tokens equal to the throttle
+limit minus 1. It must use/give one token for each request he does, but it
+regains tokens over time, 1 token every 3 seconds for instance if the decay time
+is set to 3. So for example, with a throttle limit of 5 and a decay time of 3,
+a client could do 5 - 1 = 4 requests in a row before having to wait 3 seconds
+between its requests, or they will not be answered.
+
+This protection is disabled by default because, by definition, it can disturb
+the service provided to the master's users, and given most master servers don't
+have to deal with this type of flood problem, it would be for no real benefits.
+You can enable the protection by passing the option "-f" or "--flood-protection"
+in the command line. The throttle limit and decay time can be modified with
+"--fp-throttle" and "--fp-decay-time" respectively.
+
+You also have the possibility to tune the maximum number of client records and
+the client hash size with "--max-clients" and "--cl-hash-size". But since client
+records are reused extremely rapidly in this mechanism, chances are the default
+values will be way bigger than your actual needs anyway.
+
+
+10) ADDRESS MAPPING:
 
 Address mapping allows you to tell dpmaster to transmit an IPv4 address instead
 of another one to the clients, in the "getserversResponse" messages. It can be
@@ -391,7 +423,7 @@ from a loopback address (the other way being a command line option used for
 test purposes - do NOT run your master with this option!).
 
 
-10) LISTENING INTERFACES:
+11) LISTENING INTERFACES:
 
 By default, dpmaster creates one IPv4 socket and one IPv6 socket (if IPv6
 support is available of course). It will listen on every network interface, on
@@ -401,7 +433,7 @@ have to use the command line option "-l" or "--listen".
 
 Running dpmaster with no "-l" option is (almost) like running it with:
 
-    dpmaster --listen 0.0.0.0 --listen ::
+        dpmaster --listen 0.0.0.0 --listen ::
 
 The first option is for listening on all IPv4 interfaces, the second for
 listening on all IPv6 interfaces, both on the default port. The only
@@ -416,7 +448,7 @@ As usual, you can specify a port number along with an address, by appending
 between brackets first, so that dpmaster won't get confused when interpreting
 the various colons. For example:
 
-    dpmaster -l an.address.net:546 -l [2000::1234:5678]:890
+        dpmaster -l an.address.net:546 -l [2000::1234:5678]:890
 
 will make dpmaster listen on the IPv6 interface 2000::1234:5678 on port 890,
 and on the IPv4 or IPv6 interface "an.address.net" (depending on what protocol
@@ -424,18 +456,22 @@ the resolution of this name gives) on port 546.
 
 IPv6 addressing has a few tricky aspects, and zone indices are one of them. If
 you encounter problems when configuring dpmaster for listening on a link-local
-IPv6 address, I recommend that you take a look at the paragraph regarding zone
-indices in the Wikipedia article about IPv6 <http://en.wikipedia.org/wiki/IPv6>.
+IPv6 address, I recommend that you read the paragraph called "Link-local
+addresses and zone indices" on this Wikipedia page:
+
+        http://en.wikipedia.org/wiki/IPv6_address
 
 
-11) VERSION HISTORY:
+12) VERSION HISTORY:
 
     - version 2.2-dev:
+        Flood protection against abusive client requests, by Timothee Besset
         New system for managing game properties (see GAME PROPERTIES above)
         Support for RtCW and WoET, using the game properties
         Shutdown heartbeats and unknown heartbeats are now ignored
         The chroot jail was preventing daemonization (fixed thanks to LordHavoc)
         The game type was incorrect when printing the server list in the log
+        Less debug output when building a getserversResponse in verbose mode
 
     - version 2.1:
         A gametype value can now be any string, not just a number
@@ -536,7 +572,7 @@ indices in the Wikipedia article about IPv6 <http://en.wikipedia.org/wiki/IPv6>.
         First publicly available version
 
 
-12) CONTACTS & LINKS:
+13) CONTACTS & LINKS:
 
 You can get the latest versions of DarkPlaces and dpmaster on the DarkPlaces
 home page <http://icculus.org/twilight/darkplaces/>.
