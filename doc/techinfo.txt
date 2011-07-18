@@ -109,8 +109,8 @@ This session already has 1 player waiting, and can have 4 players at most. The
 network protocol it uses is version 5, so the clients who will join must be able
 to handle this protocol version correctly.
 
-Note that we could also have specified a number for a "gametype" (i.e. a game
-mode, like "Battle to the Death" or "Resource Harvesting"). But for this simple
+Note that we could also have specified a name or number for a "gametype" (i.e. a
+game mode, like "Battle to Death" or "Resource Harvesting"). But for this simple
 example, let's say our RTS has only one game mode.
 
 This 3-step procedure "heartbeat" -> "getinfo" -> "infoResponse" should be
@@ -147,7 +147,7 @@ Software anonymous FTP site:
 
     ftp://ftp.idsoftware.com/idstuff/quake3/docs/server.txt
 
-We have tried to keep our protocol as close as possible to Q3A's one, for a
+I have tried to keep the protocol as close as possible to Q3A's one, for a
 matter of compatibility with the numerous tools that exist for this game.
 
 Dpmaster uses 5 types of messages, plus 2 extra types for supporting IPv6, the
@@ -174,8 +174,8 @@ in the infostring.
             The heartbeat is sent by a server when it wants to get noticed by a
             master. A server should send an heartbeat each time it becomes empty
             or full, or stop being empty or full, plus it should make sure the 
-            master gets at least one heartbeat from it every 5 to 15 minutes, so
-            the master doesn't remove it from its list of active servers.
+            master gets at least one heartbeat from it every 10 or 15 minutes,
+            so the master doesn't remove it from its list of active servers.
 
         - samples:
 

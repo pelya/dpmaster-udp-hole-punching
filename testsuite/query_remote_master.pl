@@ -92,4 +92,4 @@ if (IsAddressIpv6 ($masterAddr)) {
 	Client_SetProperty ($clientRef, "useIPv6", 1);
 }
 
-Test_Run ("Querying $masterAddr for $gamename servers (protocol: $protocol)...", 1);
+Test_Run ("Querying $masterAddr for $gamename servers (protocol: $protocol)...", 3, 1);

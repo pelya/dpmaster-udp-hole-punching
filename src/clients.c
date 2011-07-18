@@ -4,7 +4,7 @@
 	Client list and flood protection for dpmaster
 
 	Copyright (C) 2010  Timothee Besset
-	Copyright (C) 2010  Mathieu Olivier
+	Copyright (C) 2010-2011  Mathieu Olivier
 
 	This program is free software; you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -42,8 +42,7 @@ typedef struct client_s
 static client_t* clients = NULL;
 
 static unsigned int max_nb_clients = DEFAULT_MAX_NB_CLIENTS;
-static user_hash_table_t hash_clients_ipv4;
-static user_hash_table_t hash_clients_ipv6;
+static user_hash_table_t hash_clients;
 static size_t cl_hash_size = DEFAULT_CL_HASH_SIZE;
 
 // rolling window for allocation
@@ -86,7 +85,7 @@ Cl_AddClient
 Add a client to an hash table
 ====================
 */
-static qboolean Cl_AddClient( user_hash_table_t *hash_clients, const struct sockaddr_storage *address, socklen_t addrlen )
+static qboolean Cl_AddClient( const struct sockaddr_storage *address, socklen_t addrlen )
 {
 	int first_slot = ( last_used_slot + 1 ) % max_nb_clients;
 	int free_slot = first_slot;
@@ -133,7 +132,7 @@ static qboolean Cl_AddClient( user_hash_table_t *hash_clients, const struct sock
 		free_client->last_time = crt_time;
 
 		hash = Com_AddressHash( address, cl_hash_size );
-		Com_UserHashTable_Add( hash_clients, &free_client->user, hash );
+		Com_UserHashTable_Add( &hash_clients, &free_client->user, hash );
 
 		Com_Printf( MSG_DEBUG,
 					"> New client added: %s\n"
@@ -199,8 +198,8 @@ Set a new decay time for the flood protection
 */
 qboolean Cl_SetFPDecayTime (time_t decay)
 {
-	// Too late? Or too small?
-	if (clients != NULL || decay <= 0)
+	// Too small?
+	if (decay <= 0)
 		return false;
 
 	fp_decay_time = decay;
@@ -217,8 +216,8 @@ Set a new throttle limit for the flood protection
 */
 qboolean Cl_SetFPThrottle (unsigned int throttle)
 {
-	// Too late? Or too small?
-	if (clients != NULL || throttle <= 1)
+	// Too small?
+	if (throttle <= 1)
 		return false;
 
 	fp_throttle = throttle;
@@ -256,7 +255,7 @@ qboolean Cl_Init( void )
 
 		Com_Printf( MSG_NORMAL, "> %u client records allocated\n", max_nb_clients );
 
-		if (! Com_UserHashTable_InitTables (&hash_clients_ipv4, &hash_clients_ipv6, cl_hash_size, "Client"))
+		if (! Com_UserHashTable_Init (&hash_clients, cl_hash_size, "client"))
 			return false;
 	}
 	
@@ -273,7 +272,6 @@ Return "true" if a client should be temporary ignored because he has sent too ma
 */
 qboolean Cl_BlockedByThrottle( const struct sockaddr_storage* addr, socklen_t addrlen )
 {
-	user_hash_table_t* hash_clients;
 	unsigned int hash;
 	client_t *client;
 	qboolean (*IsSameAddress) (const struct sockaddr_storage* addr1, const struct sockaddr_storage* addr2, qboolean* same_public_address);
@@ -283,20 +281,16 @@ qboolean Cl_BlockedByThrottle( const struct sockaddr_storage* addr, socklen_t ad
 		return false;
 
 	if ( addr->ss_family == AF_INET6 )
-	{
-		hash_clients = &hash_clients_ipv6;
 		IsSameAddress = &Com_SameIPv6Addr;
-	}
 	else
 	{
 		assert (addr->ss_family == AF_INET);
-		hash_clients = &hash_clients_ipv4;
 		IsSameAddress = &Com_SameIPv4Addr;
 	}
 
 	// look for activity information about this client
 	hash = Com_AddressHash( addr, cl_hash_size );
-	client = (client_t*)hash_clients->entries[ hash ];
+	client = (client_t*)hash_clients.entries[ hash ];
 	while ( client != NULL )
 	{
 		if ( addr->ss_family == client->user.address.ss_family )
@@ -308,25 +302,27 @@ qboolean Cl_BlockedByThrottle( const struct sockaddr_storage* addr, socklen_t ad
 			// found entry
 			if ( same_public_address )
 			{
-				int count = Cl_QueryThrottleDecay( client );
-				if ( count >= fp_throttle )
+				msg_level_t msg_level;
+				const char* msg_result;
+
+				int new_count = Cl_QueryThrottleDecay( client ) + 1;
+				qboolean is_blocked = ( new_count >= fp_throttle );
+				if ( ! is_blocked )
 				{
-					Com_Printf( MSG_NORMAL, "> Client %s: throttled (count == %d)\n", peer_address, count );
-					return true;
+					client->count = new_count;
+					client->last_time = crt_time;
+					msg_level = MSG_DEBUG;
+					msg_result = "not throttled";
+
+				}
+				else
+				{
+					msg_level = MSG_NORMAL;
+					msg_result = "throttled";
 				}
 
-				count++;
-				client->count = count;
-				client->last_time = crt_time;
-
-				if ( count >= fp_throttle )
-				{
-					Com_Printf( MSG_NORMAL, "> Client %s: start throttling (count == %d)\n", peer_address, count );
-					return true;
-				}
-
-				Com_Printf( MSG_DEBUG, "> Client %s: not throttled (count == %d)\n", peer_address, count );
-				return false;
+				Com_Printf( msg_level, "> Client %s: %s (new count == %d)\n", peer_address, msg_result, new_count );
+				return is_blocked;
 			}
 		}
 
@@ -334,5 +330,5 @@ qboolean Cl_BlockedByThrottle( const struct sockaddr_storage* addr, socklen_t ad
 	}
 
 	assert( client == NULL );
-	return ( ! Cl_AddClient( hash_clients, addr, addrlen ) );
+	return ( ! Cl_AddClient( addr, addrlen ) );
 }

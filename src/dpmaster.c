@@ -76,8 +76,8 @@ static const cmdlineopt_t cmdline_options [] =
 		"Set the decay time of the flood protection, in seconds (default: %d)",
 		{ DEFAULT_FP_DECAY_TIME, 0 },
 		'\0',
-		0,
-		0
+		1,
+		1
 	},
 	{
 		"fp-throttle",
@@ -85,8 +85,8 @@ static const cmdlineopt_t cmdline_options [] =
 		"Set the throttle limit of the flood protection (default: %d)",
 		{ DEFAULT_FP_THROTTLE, 0 },
 		'\0',
-		0,
-		0
+		1,
+		1
 	},
 	{
 		"game-properties",

@@ -3,7 +3,7 @@
 
 	System specific code for dpmaster
 
-	Copyright (C) 2008-2009  Mathieu Olivier
+	Copyright (C) 2008-2011  Mathieu Olivier
 
 	This program is free software; you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -155,9 +155,6 @@ int Sys_GetLastNetError (void);
 
 // Get the last network error string
 const char* Sys_GetLastNetErrorString (void);
-
-// Are we listening on an address of the given family?
-qboolean Sys_IsListeningOn (sa_family_t addr_family); 
 
 
 #endif  // #ifndef _SYSTEM_H_

@@ -3,7 +3,7 @@
 
 	Common header file for dpmaster
 
-	Copyright (C) 2004-2010  Mathieu Olivier
+	Copyright (C) 2004-2011  Mathieu Olivier
 
 	This program is free software; you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -26,6 +26,7 @@
 
 
 #include <assert.h>
+#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -140,11 +141,10 @@ extern qboolean hash_ports;
 
 // ---------- Public functions (user hash table) ---------- //
 
-// Initialize user hash tables
-qboolean Com_UserHashTable_InitTables (user_hash_table_t* ipv4_table,
-									   user_hash_table_t* ipv6_table,
-									   size_t hash_size,
-									   const char* tables_name);
+// Initialize a user hash table
+qboolean Com_UserHashTable_Init (user_hash_table_t* table,
+								 size_t hash_size,
+								 const char* table_name);
 
 // Add a user to the hash table
 void Com_UserHashTable_Add (user_hash_table_t* table, user_t* user, unsigned int hash);

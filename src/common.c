@@ -4,7 +4,7 @@
 
 	Utility functions for dpmaster
 
-	Copyright (C) 2008-2009  Mathieu Olivier
+	Copyright (C) 2008-2011  Mathieu Olivier
 
 	This program is free software; you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -215,7 +215,7 @@ qboolean Com_UpdateLogStatus (qboolean init)
 }
 
 
-// ---------- Private functions (user hash table) ---------- //
+// ---------- Public functions (user hash table) ---------- //
 
 /*
 ====================
@@ -224,54 +224,33 @@ Com_UserHashTable_Init
 Initialize a user hash table
 ====================
 */
-static qboolean Com_UserHashTable_Init (user_hash_table_t* table,
-										size_t hash_size,
-										const char* table_name,
-										sa_family_t addr_family,
-										const char* proto_name)
+qboolean Com_UserHashTable_Init (user_hash_table_t* table,
+								 size_t hash_size,
+								 const char* table_name)
 {
-	if (Sys_IsListeningOn (addr_family))
+	size_t array_size;
+	user_t** result;
+
+	assert (table_name[0] != '\0');
+
+	array_size = (1 << hash_size) * sizeof (user_t*);
+	result = malloc (array_size);
+	if (result == NULL)
 	{
-		size_t array_size = (1 << hash_size) * sizeof (user_t*);
-		user_t** result;
-
-		result = malloc (array_size);
-		if (result == NULL)
-		{
-			Com_Printf (MSG_ERROR,
-						"> ERROR: can't allocate the %s %s hash table (%s)\n",
-						table_name, proto_name, strerror (errno));
-			return false;
-		}
-
-		memset (result, 0, array_size);
-		table->entries = result;
-
-		Com_Printf (MSG_DEBUG,
-					"> %s hash table allocated for %s (%u entries)\n",
-					table_name, proto_name, 1 << hash_size);
+		Com_Printf (MSG_ERROR,
+					"> ERROR: can't allocate the %s hash table (%s)\n",
+					table_name, strerror (errno));
+		return false;
 	}
 
+	memset (result, 0, array_size);
+	table->entries = result;
+
+	Com_Printf (MSG_DEBUG,
+				"> %c%s hash table allocated (%u entries)\n",
+				toupper (table_name[0]), &table_name[1], 1 << hash_size);
+
 	return true;
-}
-
-
-// ---------- Public functions (user hash table) ---------- //
-
-/*
-====================
-Com_UserHashTable_InitTables
-
-Initialize user hash tables
-====================
-*/
-qboolean Com_UserHashTable_InitTables (user_hash_table_t* ipv4_table,
-									   user_hash_table_t* ipv6_table,
-									   size_t hash_size,
-									   const char* tables_name)
-{
-	return (Com_UserHashTable_Init (ipv4_table, hash_size, tables_name, AF_INET, "IPv4") &&
-			Com_UserHashTable_Init (ipv6_table, hash_size, tables_name, AF_INET6, "IPv6"));
 }
 
 

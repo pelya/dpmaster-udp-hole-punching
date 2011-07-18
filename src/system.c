@@ -3,7 +3,7 @@
 
 	System specific code for dpmaster
 
-	Copyright (C) 2008-2010  Mathieu Olivier
+	Copyright (C) 2008-2011  Mathieu Olivier
 
 	This program is free software; you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -770,23 +770,4 @@ const char* Sys_GetLastNetErrorString (void)
 		}
 	}
 #endif
-}
-
-
-/*
-====================
-Sys_IsListeningOn
-
-Are we listening on an address of the given family?
-====================
-*/
-qboolean Sys_IsListeningOn (sa_family_t addr_family)
-{
-	unsigned int sock_ind;
-
-	for (sock_ind = 0; sock_ind < nb_sockets; sock_ind++)
-		if (listen_sockets[sock_ind].local_addr.ss_family == addr_family)
-			return true;
-
-	return false;
 }

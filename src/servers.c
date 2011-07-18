@@ -3,7 +3,7 @@
 
 	Server list and address mapping management for dpmaster
 
-	Copyright (C) 2004-2009  Mathieu Olivier
+	Copyright (C) 2004-2011  Mathieu Olivier
 
 	This program is free software; you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -40,8 +40,7 @@
 static server_t* servers = NULL;
 static unsigned int max_nb_servers = DEFAULT_MAX_NB_SERVERS;
 static unsigned int nb_servers = 0;
-static user_hash_table_t hash_table_ipv4;
-static user_hash_table_t hash_table_ipv6;
+static user_hash_table_t hash_table;
 static size_t sv_hash_size = DEFAULT_SV_HASH_SIZE;
 
 static unsigned int max_per_address = DEFAULT_MAX_NB_SERVERS_PER_ADDRESS;
@@ -154,22 +153,17 @@ Search for a particular server in the list
 static server_t* Sv_GetByAddr_Internal (const struct sockaddr_storage* address, unsigned int* same_address_found)
 {
 	unsigned int hash = Com_AddressHash (address, sv_hash_size);
-	user_hash_table_t* hash_table;
 	server_t* sv;
 	qboolean (*IsSameAddress) (const struct sockaddr_storage* addr1, const struct sockaddr_storage* addr2, qboolean* same_public_address);
 	
 	if (address->ss_family == AF_INET6)
-	{
-		hash_table = &hash_table_ipv6;
 		IsSameAddress = &Com_SameIPv6Addr;
-	}
 	else
 	{
 		assert (address->ss_family == AF_INET);
-		hash_table = &hash_table_ipv4;
 		IsSameAddress = &Com_SameIPv4Addr;
 	}
-	sv = (server_t*)hash_table->entries[hash];
+	sv = (server_t*)hash_table.entries[hash];
 
 	*same_address_found = 0;
 	while (sv != NULL)
@@ -179,22 +173,26 @@ static server_t* Sv_GetByAddr_Internal (const struct sockaddr_storage* address, 
 
 		if (Sv_IsActive (sv_ind))
 		{
-			// Same address?
-			qboolean same_public_address;
-			qboolean same_address;
-
-			same_public_address = false;
-			same_address = IsSameAddress (&sv->user.address, address, &same_public_address);
-			if (same_public_address)
-				*same_address_found += 1;
-			if (same_address)
+			const struct sockaddr_storage* sv_address = &sv->user.address;
+			if (address->ss_family == sv_address->ss_family)
 			{
-				// Move it on top of the list (it's useful because heartbeats
-				// are almost always followed by infoResponses)
-				Com_UserHashTable_Remove (&sv->user);
-				Com_UserHashTable_Add (hash_table, &sv->user, hash);
+				// Same address?
+				qboolean same_public_address;
+				qboolean same_address;
 
-				return sv;
+				same_public_address = false;
+				same_address = IsSameAddress (sv_address, address, &same_public_address);
+				if (same_public_address)
+					*same_address_found += 1;
+				if (same_address)
+				{
+					// Move it on top of the list (it's useful because heartbeats
+					// are almost always followed by infoResponses)
+					Com_UserHashTable_Remove (&sv->user);
+					Com_UserHashTable_Add (&hash_table, &sv->user, hash);
+
+					return sv;
+				}
 			}
 		}
 		
@@ -508,7 +506,7 @@ qboolean Sv_Init (void)
 	else
 		Com_Printf (MSG_NORMAL, "%u)\n", max_per_address);
 
-	if (! Com_UserHashTable_InitTables (&hash_table_ipv4, &hash_table_ipv6, sv_hash_size, "Server"))
+	if (! Com_UserHashTable_Init (&hash_table, sv_hash_size, "server"))
 		return false;
 
 	return true;
@@ -529,7 +527,6 @@ server_t* Sv_GetByAddr (const struct sockaddr_storage* address, socklen_t addrle
 	const addrmap_t* addrmap = NULL;
 	unsigned int hash;
 	unsigned int ind;
-	user_hash_table_t* hash_table;
 
 	sv = Sv_GetByAddr_Internal (address, &nb_same_address);
 	if (sv != NULL)
@@ -631,11 +628,7 @@ server_t* Sv_GetByAddr (const struct sockaddr_storage* address, socklen_t addrle
 
 	// Add it to the list it belongs to
 	hash = Com_AddressHash (address, sv_hash_size);
-	if (address->ss_family == AF_INET6)
-		hash_table = &hash_table_ipv6;
-	else
-		hash_table = &hash_table_ipv4;
-	Com_UserHashTable_Add (hash_table, &sv->user, hash);
+	Com_UserHashTable_Add (&hash_table, &sv->user, hash);
 
 	sv->state = sv_state_uninitialized;
 	sv->timeout = crt_time + TIMEOUT_HEARTBEAT;

@@ -47,6 +47,7 @@ my %dpmasterProperties = (
 
 	# Command line options
 	allowLoopback => 1,
+	floodProtectionThrottle => undef,
 	gamePolicy => undef,
 	hashPorts => 1,
 	maxNbServers => undef,
@@ -226,17 +227,19 @@ sub Common_SetNonBlockingIO {
 sub Client_CheckServerList {
 	my $clientRef = shift;
 	
-	if ($clientRef->{serverListCount} > 0) {
-		if ($clientRef->{cannotBeAnswered}) {
-			push @failureDiagnostic, "Client_CheckServerList: client $clientRef->{id} shouldn't have got any response, but it got $clientRef->{serverListCount}";
-			return 0;
-		}
-	}
-	else {
+	# If this client got no answer
+	if ($clientRef->{serverListCount} == 0) {
 		if (not $clientRef->{cannotBeAnswered}) {
 			push @failureDiagnostic, "Client_CheckServerList: client $clientRef->{id} should have received a response, but it did not";
 			return 0;
 		}
+
+		return 1;
+	}
+
+	if ($clientRef->{cannotBeAnswered}) {
+		push @failureDiagnostic, "Client_CheckServerList: client $clientRef->{id} shouldn't have got any response, but it got $clientRef->{serverListCount}";
+		return 0;
 	}
 
 	my $clUseIPv6 = $clientRef->{useIPv6};
@@ -397,15 +400,17 @@ sub Client_New {
 		family => $gameFamily,
 		id => $id,
 		state => undef,  # undef -> Init -> WaitingServerList -> Done
+		lastRequestTime => 0,
 		port => $port,
 		socket => undef,
 		serverList => {},
 		serverListCount => 0,  # Nb of server lists received
 		alwaysUseExtendedQuery => 0,
-		cannotBeAnswered => 0,
+		cannotBeAnswered => undef,
 		useIPv6 => 0,
 		queryFilters => $queryFilters,
 		ignoreEOTMarks => 0,
+		retryDelay => undef,
 
 		gameProperties => {
 			gamename => $gamename,
@@ -460,6 +465,15 @@ sub Client_Run {
 			else {
 				# FIXME: report the error correctly instead of just dying
 				die "Invalid message received while waiting for the server list";
+			}
+		}
+		
+		if ($clientRef->{serverListCount} == 0) {
+			if (defined ($clientRef->{retryDelay})) {
+				# If enough time has passed since our last request, try one more time to get an answer 
+				if ($clientRef->{lastRequestTime} + $clientRef->{retryDelay} <= $currentTime) {
+					Client_SendGetServers ($clientRef);
+				}
 			}
 		}
 	}
@@ -536,8 +550,11 @@ sub Client_SendGetServers {
 	}
 
 	send ($clientRef->{socket}, $getservers, 0) or die "Can't send packet: $!";
+	$clientRef->{lastRequestTime} = $currentTime;
 
-	$clientRef->{cannotBeAnswered} = not (Client_ValidateGetServers ($getservers) and Master_IsGameAccepted ($gameProp->{gamename}));
+	if (not defined $clientRef->{cannotBeAnswered}) {
+		$clientRef->{cannotBeAnswered} = not (Client_ValidateGetServers ($getservers) and Master_IsGameAccepted ($gameProp->{gamename}));
+	}
 }
 
 
@@ -576,6 +593,7 @@ sub Client_Start {
 
 	$clientRef->{socket} = Common_CreateSocket ($clientRef->{port}, $clientRef->{useIPv6});
 	$clientRef->{state} = "Init";
+	$clientRef->{lastRequestTime} = 0;
 }
 
 	
@@ -594,6 +612,8 @@ sub Client_Stop {
 	# Clean the server list
 	$clientRef->{serverList} = {};
 	$clientRef->{serverListCount} = 0;
+	
+	$clientRef->{cannotBeAnswered} = undef;
 }
 
 	
@@ -732,6 +752,10 @@ sub Master_Start {
 	
 	if (defined $dpmasterProperties{maxNbServers}) {
 		$dpmasterCmdLine .= " -n $dpmasterProperties{maxNbServers}";
+	}
+	
+	if (defined $dpmasterProperties{floodProtectionThrottle}) {
+		$dpmasterCmdLine .= " -f --fp-throttle $dpmasterProperties{floodProtectionThrottle}";
 	}
 	
 	# "--hash-ports" and "-N" are mutually incompatible options
@@ -1150,6 +1174,7 @@ sub Test_StopAll {
 #***************************************************************************
 sub Test_Run {
 	my $testTitle = shift;
+	my $testDuration = shift;
 	my $skipServerListCheck = shift;
 	
 	$testNumber++;
@@ -1163,7 +1188,10 @@ sub Test_Run {
 
 	Test_StartAll ();
 
-	my $testTime = $currentTime + 3;  # 3 sec of test
+	if (not defined ($testDuration)) {
+		$testDuration = 3;  # 3 sec of test, by default
+	}
+	my $testTime = $currentTime + $testDuration;
 	my $exitValue = undef;
 
 	for (;;) {
