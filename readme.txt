@@ -36,12 +36,13 @@ are you will be able to find someone that will let you use his running dpmaster
 if you can't have your own.
 
 Although dpmaster is being primarily developed on a Linux PC, it is regularly
-compiled and tested on Windows XP, OpenBSD, and Mac OS X. It has also been run
-successfully on FreeBSD, NetBSD and Windows 2000 in the past, but having no
-regular access to any of those systems, I cannot guarantee that it is still the
-case. In particular, building dpmaster on Windows 2000 may require some minor
-source code changes due to the addition of IPv6 support in dpmaster, Windows
-2000 having a limited support for this protocol.
+compiled and tested on Windows XP and OpenBSD, including on non-PC hardware when
+possible. It has also been run successfully on Mac OS X, FreeBSD, NetBSD and
+Windows 2000 in the past, but having no regular access to any of those systems,
+I cannot guarantee that it is still the case. In particular, building dpmaster
+on Windows 2000 may require some minor source code changes due to the addition
+of IPv6 support in dpmaster, Windows 2000 having a limited support for this
+protocol.
 
 Take a look at the "COMPILING DPMASTER" section in "doc/techinfo.txt" for more
 practical information on how to build it.
@@ -70,8 +71,8 @@ long form. For example, these 4 ways of running dpmaster with a maximum number
 of servers of 16 are equivalent:
 
    * dpmaster -n 16
-   * dpmaster --max-servers 16
    * dpmaster -n16
+   * dpmaster --max-servers 16
    * dpmaster --max-servers=16
 
 
@@ -89,7 +90,7 @@ That being said, here are a few options you may find handy.
 The most commonly used one is probably "-D" (or "--daemon"), a UNIX-specific
 option to make the program run in the background, as a daemon process.
 
-You can also use the classic verbose option "-v" to make dpmaster print extra
+You can also use the verbose option "-v" to make dpmaster print extra
 information (see "OUTPUT AND VERBOSITY LEVELS" in "doc/manual.txt").
 
 Finally, if you intent to run dpmaster for a long period of time, you may want

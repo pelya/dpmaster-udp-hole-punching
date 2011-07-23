@@ -111,7 +111,7 @@ directory.
 5) GAME POLICY:
 
 If you run an instance of dpmaster, I strongly encourage you to let it open to
-any game or player. Dpmaster has been developed for this particular usage and is
+any game. Dpmaster has been developed for this particular usage and is
 well-suited for it.
 
 That said, if you want to restrict which games are allowed on your master, you
@@ -156,18 +156,18 @@ makes dpmaster able to support multiple games easily.
 
 Unfortunately, formerly closed-source games don't always send this information,
 or another information that allows dpmaster to guess the game name safely.
-That's why I call them "anonymous games" here. Up to version 2.1, the only
-anonymous game dpmaster supported was Q3A, so it was easy: if the game didn't
-send its name, it was Q3A. But starting from version 2.2, dpmaster also supports
-2 other anonymous games: RtCW and WoET. That's why a new mechanism had to be
-created to allow dpmaster to figure out which game sends it which message. This
-mechanism is called "game properties".
+That's why they are called "anonymous games" here. Up to version 2.1 included,
+the only anonymous game dpmaster supported was Q3A, so it was easy: if the game
+didn't send its name, it was Q3A. But now dpmaster also supports 2 other
+anonymous games: RtCW and WoET. That's why a new mechanism had to be created to
+allow dpmaster to figure out which game sends it which message. This mechanism
+is called "game properties".
 
 Game properties are controlled by the command line option "--game-properties"
 (short option: "-g"). A number of properties are built into dpmaster, so you
 shouldn't have to configure anything for a standard usage. You can make it print
 its current list of game properties by using the command line option without any
-parameter. Here's the current output you get at the time I write those lines:
+parameter. Here's the output you currently get:
 
         Game properties:
         * et:
@@ -199,10 +199,9 @@ message, unlike normal heartbeats.
 Protocol numbers are used to figure out the game name when clients don't send it
 with their "getservers" requests, and unfortunately this is the case for all the
 anonymous games currently supported. If the protocol declared by the client
-doesn't match any of the registered protocol numbers, dpmaster will use the
-first server of an anonymous game it will find, that uses this very protocol
-number, as the reference for the name. In other words, it will handle the query
-as if it has declared the same game name as this server.
+doesn't match any of the registered protocol numbers, dpmaster will search its
+server list for an anonymous game that uses the same protocol number. It will
+then use this server's game name as the request's game name.
 
 Options allows you to specify non-standard behaviours for a game. For example,
 the WoET's clients expect the master server to send them the complete list of

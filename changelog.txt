@@ -6,7 +6,7 @@
                                 ---------------
 
 
-* Version 2.2-dev:
+* Version 2.2:
   - Flood protection against abusive clients, by Timothee Besset
   - New system for managing game properties (see GAME PROPERTIES in manual.txt)
   - Support for RtCW and WoET, using the game properties

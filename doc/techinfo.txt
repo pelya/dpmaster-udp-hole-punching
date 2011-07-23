@@ -269,7 +269,8 @@ in the infostring.
             get empty or full servers (except for WoET, which always expect a
             list of all servers). A client using the DP protocol also has to
             specify its game name, right before the protocol number. Anonymous
-            games such as Q3A or RtCW don't, obviously.
+            games such as Q3A or RtCW don't, obviously. Game names must not
+            contain whitespace characters.
 
             Starting from dpmaster version 2.0, you may also add in the option
             list at most one gametype filter "gametype=X", where X is the
@@ -337,7 +338,8 @@ in the infostring.
             As you can see in this sample, since the game name is mandatory in
             an extended query, you'll have to use the game name "Quake3Arena"
             explicitly if you want to ask for Q3A servers. Likewise, you'll have
-            to specify "wolfmp" for RtCW servers, and "et" for WoET servers.
+            to specify "wolfmp" for RtCW servers, and "et" for WoET servers. As
+            usual, game names must not contain whitespace characters.
 
     7) getserversExtResponse:
 
