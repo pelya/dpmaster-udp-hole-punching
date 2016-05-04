@@ -64,6 +64,9 @@
 // IOQuake3: "getserversExt 68 empty ipv6"
 #define C2M_GETSERVERSEXT "getserversExt "
 
+// DP: "getserversWithInfo DarkPlaces-Quake 3 empty full ipv4 ipv6"
+#define C2M_GETSERVERSWITHINFO "getserversWithInfo "
+
 // Q3 & DP & QFusion:
 // "getserversResponse\\...(6 bytes)...\\...(6 bytes)...\\EOT\0\0\0"
 #define M2C_GETSERVERSREPONSE "getserversResponse"
@@ -72,6 +75,8 @@
 // "getserversExtResponse\\...(6 bytes)...//...(18 bytes)...\\EOT\0\0\0"
 #define M2C_GETSERVERSEXTREPONSE "getserversExtResponse"
 
+// DP "getserversWithInfoResponse\n\\addr\\xxx.xxx.xxx.xxx port\\addr6\\xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx port\\(other info ...)\n(next server info)"
+#define M2C_GETSERVERSWITHINFOREPONSE "getserversWithInfoResponse"
 
 // ---------- Private functions ---------- //
 
@@ -311,7 +316,7 @@ HandleGetServers
 Parse getservers requests and send the appropriate response
 ====================
 */
-static void HandleGetServers (const char* msg, const struct sockaddr_storage* addr, socklen_t addrlen, socket_t recv_socket, qboolean extended_request)
+static void HandleGetServers (const char* msg, const struct sockaddr_storage* addr, socklen_t addrlen, socket_t recv_socket, qboolean extended_request, qboolean with_info)
 {
 	const char* packetheader;
 	size_t headersize;
@@ -334,10 +339,16 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 	char* option_ptr;
 	unsigned int nb_servers;
 	const char* request_name;
+	int serverinfo_len;
 
 	if (Cl_BlockedByThrottle (addr, addrlen))
 		return;
 
+	if (with_info)
+	{
+		request_name = "getserversWithInfo";
+		use_dp_protocol = true;
+	}
 	if (extended_request)
 	{
 		request_name = "getserversExt";
@@ -485,7 +496,9 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 	}
 
 	// Initialize the packet contents with the header
-	if (extended_request)
+	if (with_info)
+		packetheader = "\xFF\xFF\xFF\xFF" M2C_GETSERVERSWITHINFOREPONSE;
+	else if (extended_request)
 		packetheader = "\xFF\xFF\xFF\xFF" M2C_GETSERVERSEXTREPONSE;
 	else
 		packetheader = "\xFF\xFF\xFF\xFF" M2C_GETSERVERSREPONSE;
@@ -589,6 +602,14 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 
 		// If the packet doesn't have enough free space for this server
 		next_sv_size = (sv->user.address.ss_family == AF_INET ? 4 : 16) + 3;
+		if (with_info)
+		{
+			serverinfo_len = strlen(sv->serverinfo);
+			next_sv_size = serverinfo_len + 1;
+			next_sv_size += (sv->user.address.ss_family == AF_INET) ?
+							sizeof("\\addr\\xxx.xxx.xxx.xxx portx") :
+							sizeof("\\addr6\\xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx portx");
+		}
 		if (packetind + next_sv_size > sizeof (packet))
 		{
 			// Send the packet to the client
@@ -605,7 +626,27 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 			nb_servers = 0;
 		}
 
-		if (sv->user.address.ss_family == AF_INET)
+		if (with_info)
+		{
+			char addr_str [sizeof("\nxxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx") + 1];
+			int pridx;
+			if (sv->user.address.ss_family == AF_INET)
+			{
+				const struct sockaddr_in* sv_sockaddr = (const struct sockaddr_in *)&sv->user.address;
+				inet_ntop (sv->user.address.ss_family, &sv_sockaddr->sin_addr, addr_str, sizeof(addr_str));
+				pridx = sprintf ((char *)packet + packetind, "\n\\addr\\%s %u", addr_str, ntohs (sv_sockaddr->sin_port));
+			}
+			else
+			{
+				const struct sockaddr_in6* sv_sockaddr6 = (const struct sockaddr_in6 *)&sv->user.address;
+				inet_ntop (sv->user.address.ss_family, &sv_sockaddr6->sin6_addr, addr_str, sizeof(addr_str));
+				pridx = sprintf ((char *)packet + packetind, "\n\\add6r\\%s %u", addr_str, ntohs (sv_sockaddr6->sin6_port));
+			}
+			packetind += pridx;
+			strncpy ((char *)packet + packetind, sv->serverinfo, serverinfo_len);
+			packetind += serverinfo_len;
+		}
+		else if (sv->user.address.ss_family == AF_INET)
 		{
 			const struct sockaddr_in* sv_sockaddr;
 			unsigned int sv_addr;
@@ -678,7 +719,7 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 	}
 
 	// If the packet doesn't have enough free space for the EOT mark
-	if (packetind + 7 > sizeof (packet))
+	if (packetind + 7 > sizeof (packet) && !with_info)
 	{
 		// Send the packet to the client
 		if (sendto (recv_socket, (void*)packet, packetind, 0,
@@ -694,15 +735,18 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 		nb_servers = 0;
 	}
 
-	// End Of Transmission
-	packet[packetind    ] = '\\';
-	packet[packetind + 1] = 'E';
-	packet[packetind + 2] = 'O';
-	packet[packetind + 3] = 'T';
-	packet[packetind + 4] = '\0';
-	packet[packetind + 5] = '\0';
-	packet[packetind + 6] = '\0';
-	packetind += 7;
+	if (!with_info)
+	{
+		// End Of Transmission
+		packet[packetind    ] = '\\';
+		packet[packetind + 1] = 'E';
+		packet[packetind + 2] = 'O';
+		packet[packetind + 3] = 'T';
+		packet[packetind + 4] = '\0';
+		packet[packetind + 5] = '\0';
+		packet[packetind + 6] = '\0';
+		packetind += 7;
+	}
 
 	// Send the packet to the client
 	if (sendto (recv_socket, (void*)packet, packetind, 0,
@@ -869,6 +913,20 @@ static void HandleInfoResponse (server_t* server, const char* msg)
 	else
 		server->state = sv_state_occupied;
 
+	// Save all server info
+	// Assume that 'challenge' infostring is the very last string of the msg, and remove it
+	server->serverinfo [0] = '\0';
+	value = SearchInfostring (msg, "challenge");
+	if (value == NULL)
+		value = msg + strlen (msg);
+	else
+		value -= sizeof("challenge");
+	if (value - msg > 0 && value - msg < sizeof(server->serverinfo) - 1)
+	{
+		strncpy (server->serverinfo, msg, value - msg);
+		server->serverinfo [value - msg] = '\0';
+	}
+
 	// Set a new timeout
 	server->timeout = crt_time + TIMEOUT_INFORESPONSE;
 }
@@ -918,13 +976,20 @@ void HandleMessage (const char* msg, size_t length,
 	else if (!strncmp (C2M_GETSERVERS, msg, strlen (C2M_GETSERVERS)))
 	{
 		HandleGetServers (msg + strlen (C2M_GETSERVERS), address, addrlen,
-						  recv_socket, false);
+						  recv_socket, false, false);
 	}
 
 	// If it's a getserversExt request
 	else if (!strncmp (C2M_GETSERVERSEXT, msg, strlen (C2M_GETSERVERSEXT)))
 	{
 		HandleGetServers (msg + strlen (C2M_GETSERVERSEXT), address, addrlen,
-						  recv_socket, true);
+						  recv_socket, true, false);
+	}
+
+	// If it's a getserversWithInfo request
+	else if (!strncmp (C2M_GETSERVERSWITHINFO, msg, strlen (C2M_GETSERVERSEXT)))
+	{
+		HandleGetServers (msg + strlen (C2M_GETSERVERSWITHINFO), address, addrlen,
+						  recv_socket, true, true);
 	}
 }

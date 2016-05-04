@@ -46,6 +46,9 @@
 // Max number of characters for a gametype, including the '\0'
 #define GAMETYPE_LENGTH 32
 
+// Max size of a server info string, including the '\0'
+#define SERVERINFO_LENGTH 512
+
 
 // ---------- Types ---------- //
 
@@ -84,6 +87,7 @@ typedef struct server_s
 	char challenge [CHALLENGE_MAX_LENGTH];
 	char gametype [GAMETYPE_LENGTH];
 	char gamename [GAMENAME_LENGTH];
+	char serverinfo [SERVERINFO_LENGTH];
 } server_t;
 
 
