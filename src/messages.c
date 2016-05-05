@@ -41,6 +41,8 @@
 // Maximum size of a reponse packet
 #define MAX_PACKET_SIZE_OUT 1400
 
+// Maximum size of data to relay using relaySend/relayRecv messages
+#define MAX_RELAY_DATA_SIZE 512
 
 // Types of messages (with samples):
 
@@ -67,6 +69,12 @@
 // DP: "getserversWithInfo DarkPlaces-Quake 3 empty full ipv4 ipv6"
 #define C2M_GETSERVERSWITHINFO "getserversWithInfo "
 
+// DP: "getMyAddr", no parameters
+#define C2M_GETMYADDR "getMyAddr"
+
+// DP: "relaySend xxx.xxx.xxx.xxx port\ndata...", data must be a string, with no '\0' inside, of no more than MAX_RELAY_DATA_SIZE length
+#define C2M_RELAYSEND "relaySend "
+
 // Q3 & DP & QFusion:
 // "getserversResponse\\...(6 bytes)...\\...(6 bytes)...\\EOT\0\0\0"
 #define M2C_GETSERVERSREPONSE "getserversResponse"
@@ -77,6 +85,12 @@
 
 // DP "getserversWithInfoResponse\n\\addr\\xxx.xxx.xxx.xxx port\\addr6\\xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx port\\(other info ...)\n(next server info)"
 #define M2C_GETSERVERSWITHINFOREPONSE "getserversWithInfoResponse"
+
+// DP "getMyAddrResponse xxx.xxx.xxx.xxx port"
+#define M2C_GETMYADDRRESPONSE "getMyAddrResponse "
+
+// DP: "relayRecv xxx.xxx.xxx.xxx port\ndata..."
+#define M2C_RELAYRECV "relayRecv "
 
 // ---------- Private functions ---------- //
 
@@ -931,6 +945,122 @@ static void HandleInfoResponse (server_t* server, const char* msg)
 	server->timeout = crt_time + TIMEOUT_INFORESPONSE;
 }
 
+/*
+====================
+HandleGetMyAddr
+
+Return an address from which the request was sent
+====================
+*/
+static void HandleGetMyAddr (const struct sockaddr_storage* addr, socklen_t addrlen, socket_t recv_socket)
+{
+	const struct sockaddr_in* sv_sockaddr = (const struct sockaddr_in *)addr;
+	qbyte packet [MAX_PACKET_SIZE_OUT];
+	size_t packetind;
+	char addr_str [sizeof("\nxxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx") + 1];
+
+	if (addr->ss_family != AF_INET)
+	{
+		// IPv6 never has any NAT, unless your network provider hates you
+		Com_Printf (MSG_NORMAL, "> %s <--- %s ignored for IPv6\n",
+					peer_address, C2M_GETMYADDR);
+		return;
+	}
+
+	strcpy ((char *)packet, "\xFF\xFF\xFF\xFF" M2C_GETMYADDRRESPONSE);
+	packetind = strlen ((char *)packet);
+
+	inet_ntop (sv_sockaddr->sin_family, &sv_sockaddr->sin_addr, addr_str, sizeof(addr_str));
+	packetind += sprintf ((char *)packet + packetind, "%s %u", addr_str, ntohs (sv_sockaddr->sin_port));
+
+	// Send the response back to the client
+	if (sendto (recv_socket, (void*)packet, packetind, 0,
+			(const struct sockaddr*)addr, addrlen) < 0)
+		Com_Printf (MSG_WARNING, "> WARNING: can't send %s (%s)\n",
+					M2C_GETMYADDRRESPONSE, Sys_GetLastNetErrorString ());
+	else
+		Com_Printf (MSG_NORMAL, "> %s <--- %s %s %u\n",
+					peer_address, M2C_GETMYADDRRESPONSE, addr_str, ntohs (sv_sockaddr->sin_port));
+}
+
+/*
+====================
+HandleRelaySend
+
+Relay a piece of data between two hosts
+====================
+*/
+static void HandleRelaySend (const char* msg, const struct sockaddr_storage* addr, socklen_t addrlen, socket_t recv_socket)
+{
+	const struct sockaddr_in* sv_sockaddr = (const struct sockaddr_in *)addr;
+	qbyte packet [MAX_PACKET_SIZE_OUT];
+	size_t packetind;
+	char addr_str [sizeof("\nxxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx") + 1];
+	struct sockaddr_in target_sockaddr;
+	unsigned target_port;
+	const char *data;
+	size_t datalen;
+
+	if (addr->ss_family != AF_INET)
+	{
+		// IPv6 never has any NAT, and you cannot connect IPv4 and IPv6 hosts
+		Com_Printf (MSG_NORMAL, "> %s <--- %s ignored for IPv6\n",
+					peer_address, C2M_RELAYSEND);
+		return;
+	}
+
+	strcpy ((char *)packet, "\xFF\xFF\xFF\xFF" M2C_RELAYRECV);
+	packetind = strlen ((char *)packet);
+
+	inet_ntop (sv_sockaddr->sin_family, &sv_sockaddr->sin_addr, addr_str, sizeof(addr_str));
+	packetind += sprintf ((char *)packet + packetind, "%s %u", addr_str, ntohs (sv_sockaddr->sin_port));
+
+	if (sscanf (msg, "%20s %u", addr_str, &target_port) != 2)
+	{
+		Com_Printf (MSG_NORMAL, "> %s <--- %s does not contain target address\n",
+					peer_address, C2M_RELAYSEND);
+		return;
+	}
+
+	target_sockaddr.sin_family = AF_INET;
+	target_sockaddr.sin_port = htons(target_port);
+
+	if (!inet_aton (addr_str, &target_sockaddr.sin_addr))
+	{
+		Com_Printf (MSG_NORMAL, "> %s <--- %s contains invalid target address\n",
+					peer_address, C2M_RELAYSEND);
+		return;
+	}
+
+	data = strchr (msg, '\n');
+	if (!data)
+	{
+		Com_Printf (MSG_NORMAL, "> %s <--- %s contains no data\n",
+					peer_address, C2M_RELAYSEND);
+		return;
+	}
+
+	datalen = strlen (data);
+	if (datalen > MAX_RELAY_DATA_SIZE)
+	{
+		Com_Printf (MSG_NORMAL, "> %s <--- %s data length too big: %zu\n",
+					peer_address, C2M_RELAYSEND, datalen);
+		return;
+	}
+
+	memcpy (packet + packetind, data, datalen);
+	packetind += datalen;
+
+	// Send the response to the target host
+	if (sendto (recv_socket, (void*)packet, packetind, 0,
+			(const struct sockaddr*)&target_sockaddr, sizeof(target_sockaddr)) < 0)
+		Com_Printf (MSG_WARNING, "> WARNING: can't send %s (%s)\n",
+					M2C_RELAYRECV, Sys_GetLastNetErrorString ());
+	else
+		Com_Printf (MSG_NORMAL, "> %s <--- %s to %s %u\n",
+					peer_address, M2C_RELAYRECV, addr_str, target_port);
+}
+
 
 // ---------- Public functions ---------- //
 
@@ -991,5 +1121,17 @@ void HandleMessage (const char* msg, size_t length,
 	{
 		HandleGetServers (msg + strlen (C2M_GETSERVERSWITHINFO), address, addrlen,
 						  recv_socket, true, true);
+	}
+
+	// The client wants to know it's own public address
+	else if (!strncmp (C2M_GETMYADDR, msg, strlen (C2M_GETMYADDR)))
+	{
+		HandleGetMyAddr (address, addrlen, recv_socket);
+	}
+
+	// Relay data between two hosts
+	else if (!strncmp (C2M_RELAYSEND, msg, strlen (C2M_RELAYSEND)))
+	{
+		HandleRelaySend (msg + strlen (C2M_RELAYSEND), address, addrlen, recv_socket);
 	}
 }
