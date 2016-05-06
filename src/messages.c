@@ -620,6 +620,8 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 		if (with_info)
 		{
 			serverinfo_len = strlen(sv->serverinfo);
+			if (serverinfo_len == 0)
+				continue; // Don't send servers which do did not respond to ping
 			next_sv_size = serverinfo_len + 1;
 			next_sv_size += (sv->user.address.ss_family == AF_INET) ?
 							sizeof("\\addr\\xxx.xxx.xxx.xxx portx") :
