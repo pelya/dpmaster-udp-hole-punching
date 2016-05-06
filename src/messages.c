@@ -933,7 +933,7 @@ static void HandleInfoResponse (server_t* server, const char* msg)
 	// Save all server info
 	// Assume that 'challenge' infostring is the very last string of the msg, and remove it
 	server->serverinfo [0] = '\0';
-	value = SearchInfostring (msg, "challenge");
+	value = strstr (msg, "challenge");
 	if (value == NULL)
 		value = msg + strlen (msg);
 	else
