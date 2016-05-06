@@ -942,7 +942,10 @@ static void HandleInfoResponse (server_t* server, const char* msg)
 	{
 		strncpy (server->serverinfo, msg, value - msg);
 		server->serverinfo [value - msg] = '\0';
+		Com_Printf (MSG_NORMAL, "> %s ---> infoResponse serverinfo len %d: %s\n", peer_address, value - msg, server->serverinfo);
 	}
+	else
+		Com_Printf (MSG_NORMAL, "> %s ---> infoResponse empty serverinfo\n", peer_address);
 
 	// Set a new timeout
 	server->timeout = crt_time + TIMEOUT_INFORESPONSE;
