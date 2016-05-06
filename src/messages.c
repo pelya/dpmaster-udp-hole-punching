@@ -83,7 +83,8 @@
 // "getserversExtResponse\\...(6 bytes)...//...(18 bytes)...\\EOT\0\0\0"
 #define M2C_GETSERVERSEXTREPONSE "getserversExtResponse"
 
-// DP "getserversWithInfoResponse\n\\addr\\xxx.xxx.xxx.xxx port\\addr6\\xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx port\\(other info ...)\n(next server info)"
+// DP "getserversWithInfoResponse\n\\addr\\xxx.xxx.xxx.xxx port\\(other info ...)\n(next server info)\n(next server info)"
+// DP "getserversWithInfoResponse\n\\addr6\\xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx port\\(other info ...)\n(next server info)"
 #define M2C_GETSERVERSWITHINFOREPONSE "getserversWithInfoResponse"
 
 // DP "getMyAddrResponse xxx.xxx.xxx.xxx port"
