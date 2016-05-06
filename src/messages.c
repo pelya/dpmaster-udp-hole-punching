@@ -364,7 +364,7 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 		request_name = "getserversWithInfo";
 		use_dp_protocol = true;
 	}
-	if (extended_request)
+	else if (extended_request)
 	{
 		request_name = "getserversExt";
 		use_dp_protocol = true;
