@@ -354,7 +354,7 @@ static void HandleGetServers (const char* msg, const struct sockaddr_storage* ad
 	char* option_ptr;
 	unsigned int nb_servers;
 	const char* request_name;
-	int serverinfo_len;
+	int serverinfo_len = 0;
 
 	if (Cl_BlockedByThrottle (addr, addrlen))
 		return;
