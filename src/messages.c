@@ -933,11 +933,9 @@ static void HandleInfoResponse (server_t* server, const char* msg)
 	// Save all server info
 	// Assume that 'challenge' infostring is the very last string of the msg, and remove it
 	server->serverinfo [0] = '\0';
-	value = strstr (msg, "challenge");
+	value = strstr (msg, "\\challenge");
 	if (value == NULL)
 		value = msg + strlen (msg);
-	else
-		value -= sizeof("challenge");
 	if (value - msg > 0 && value - msg < sizeof(server->serverinfo) - 1)
 	{
 		strncpy (server->serverinfo, msg, value - msg);
