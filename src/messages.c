@@ -39,7 +39,7 @@
 #define TIMEOUT_CHALLENGE 2
 
 // Maximum size of a reponse packet
-#define MAX_PACKET_SIZE_OUT 1400
+#define MAX_PACKET_SIZE_OUT 1300
 
 // Maximum size of data to relay using relaySend/relayRecv messages
 #define MAX_RELAY_DATA_SIZE 512
