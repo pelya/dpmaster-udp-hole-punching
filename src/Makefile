@@ -8,7 +8,7 @@ WIN32_RM=del
 ##### Unix variables #####
 
 UNIX_EXE=dpmaster
-UNIX_LDFLAGS=
+UNIX_LDFLAGS=-lGeoIP
 UNIX_RM=rm -f
 
 ##### Common variables #####

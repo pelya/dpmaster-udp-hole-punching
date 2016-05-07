@@ -20,6 +20,7 @@
 	Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 */
 
+#include <GeoIP.h>
 
 #include "common.h"
 #include "system.h"
@@ -219,6 +220,27 @@ static const char* BuildChallenge (void)
 	return challenge;
 }
 
+/* Find country name from IP address */
+static const char * GetCountryFromAddress(const struct sockaddr_storage *address)
+{
+	static GeoIP *gi = NULL;
+	const struct sockaddr_in* sv_sockaddr = (const struct sockaddr_in *)address;
+	char addr_str[64];
+	
+	if (!gi)
+	{
+		gi = GeoIP_open("/usr/share/GeoIP/GeoIP.dat", GEOIP_MEMORY_CACHE);
+		if (!gi)
+		{
+			Com_Printf (MSG_ERROR, "Cannot open GeoIP database at /usr/share/GeoIP/GeoIP.dat! Terminating\n");
+			exit(1);
+		}
+	}
+	if (sv_sockaddr->sin_family != AF_INET || !inet_ntop (AF_INET, &sv_sockaddr->sin_addr, addr_str, sizeof(addr_str)))
+		return NULL;
+
+	return GeoIP_country_code3_by_addr(gi, addr_str);
+}
 
 /*
 ====================
@@ -940,6 +962,12 @@ static void HandleInfoResponse (server_t* server, const char* msg)
 	{
 		strncpy (server->serverinfo, msg, value - msg);
 		server->serverinfo [value - msg] = '\0';
+		if (value - msg < sizeof (server->serverinfo) - sizeof("\\country\\XXX") - 1)
+		{
+			const char *country = GetCountryFromAddress (&server->user.address);
+			if (country != NULL && strlen (country) <= 3)
+				sprintf (&server->serverinfo [value - msg], "\\country\\%s", country);
+		}
 		Com_Printf (MSG_NORMAL, "> %s ---> infoResponse serverinfo len %d: %s\n", peer_address, value - msg, server->serverinfo);
 	}
 	else
