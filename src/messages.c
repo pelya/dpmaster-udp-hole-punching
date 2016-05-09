@@ -34,7 +34,7 @@
 // ---------- Constants ---------- //
 
 // Timeout after a valid infoResponse (in secondes)
-#define TIMEOUT_INFORESPONSE (15 * 60)
+#define TIMEOUT_INFORESPONSE (40)
 
 // Period of validity for a challenge string (in secondes)
 #define TIMEOUT_CHALLENGE 2
